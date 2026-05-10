@@ -562,7 +562,7 @@ class SearchPrecedentTests(unittest.TestCase):
         item = {
             "case_number": "令和2(受)123",
             "court_name": "最高裁判所第一小法廷",
-            "date": "2020-05-01",
+            "date": {"era": "Reiwa", "year": 2, "month": 5, "day": 1},
             "trial_type": "SupremeCourt",
             "lawsuit_id": "1",
         }
@@ -591,6 +591,7 @@ class SearchPrecedentTests(unittest.TestCase):
         data = self.run_script("--title", "損害賠償", "--limit", "5")
         self.assertEqual(data[0]["title"], "損害賠償請求事件")
         self.assertEqual(data[0]["decade"], "2020")
+        self.assertEqual(data[0]["date"], {"era": "Reiwa", "year": 2, "month": 5, "day": 1})
 
     def test_case_number_search(self):
         data = self.run_script("--case-number", "令和2", "--limit", "5")
@@ -669,6 +670,14 @@ def value_for(entry: dict[str, Any], keys: Iterable[str]) -> str:
         if value:
             return str(value)
     return ""
+
+
+def raw_value_for(entry: dict[str, Any], keys: Iterable[str]) -> Any:
+    for key in keys:
+        value = entry.get(key)
+        if value:
+            return value
+    return None
 
 
 def make_snippet(text: str, keyword: str, context: int = 120) -> str:
@@ -763,7 +772,7 @@ def format_entry(repo: Path, entry: dict[str, Any], content: bool = False, snipp
         "title": title,
         "case_number": case_number,
         "court": court,
-        "date": value_for(merged, ["date", "judgement_date", "裁判年月日"]),
+        "date": raw_value_for(merged, ["date", "judgement_date", "裁判年月日"]),
         "decade": entry.get("decade"),
         "source_file": entry.get("source_file"),
         "json_path": entry.get("json_path"),
