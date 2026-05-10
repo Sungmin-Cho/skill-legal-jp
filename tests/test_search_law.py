@@ -287,6 +287,43 @@ class SearchLawTest(unittest.TestCase):
         self.assertEqual("平成二十年内閣府・財務省・経済産業省令第一号", results[0]["num"])
         self.assertEqual("報酬等", results[0]["ryakusyou_lst"][0]["ryakusyou"])
 
+    def test_abbr_search_keeps_multiple_unresolved_ryakusyou_usages_for_same_law(self):
+        law_num = "平成二十年内閣府・財務省・経済産業省令第一号"
+        laws = json.loads((self.repo / "law" / "list.json").read_text(encoding="utf-8"))
+        laws.append({"name": "株式会社商工組合中央金庫法施行規則", "num": law_num})
+        self._write_json(self.repo / "law" / "list.json", laws)
+        self._write_json(
+            self.repo / "law" / "ryakusyou.json",
+            [
+                {
+                    "num": law_num,
+                    "chapter": {"chapter": 4, "article": "83"},
+                    "ryakusyou_lst": [
+                        {
+                            "ryakusyou": "報酬等",
+                            "seishiki": "報酬、賞与その他の職務執行の対価",
+                        }
+                    ],
+                },
+                {
+                    "num": law_num,
+                    "chapter": {"chapter": 5, "article": "84"},
+                    "ryakusyou_lst": [
+                        {
+                            "ryakusyou": "報酬等",
+                            "seishiki": "報酬その他これに準ずる対価",
+                        }
+                    ],
+                },
+            ],
+        )
+
+        results, _ = self._run_search("--abbr", "報酬等", "--limit", "5")
+
+        usages = [result for result in results if result["status"] == "abbreviation_usage"]
+        self.assertEqual(2, len(usages))
+        self.assertEqual([{"chapter": 4, "article": "83"}, {"chapter": 5, "article": "84"}], [result["chapter"] for result in usages])
+
     def test_abbr_search_does_not_match_ryakusyou_formal_text_only(self):
         self._write_json(
             self.repo / "law" / "ryakusyou.json",
@@ -339,6 +376,25 @@ class SearchLawTest(unittest.TestCase):
             )
         finally:
             path.chmod(0o644)
+
+        self.assertEqual(2, proc.returncode)
+        self.assertEqual([], json.loads(proc.stdout))
+        self.assertIn("unreadable JSON file", proc.stderr)
+        self.assertIn("ryakusyou.json", proc.stderr)
+
+    def test_required_ryakusyou_directory_exits_nonzero_with_empty_json(self):
+        path = self.repo / "law" / "ryakusyou.json"
+        path.unlink()
+        path.mkdir()
+
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPT), "--repo", str(self.repo), "--abbr", "存在しない略称"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+        )
 
         self.assertEqual(2, proc.returncode)
         self.assertEqual([], json.loads(proc.stdout))

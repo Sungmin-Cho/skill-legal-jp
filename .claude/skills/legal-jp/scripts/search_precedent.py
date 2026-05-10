@@ -248,7 +248,7 @@ def decade_dirs(repo, decade=None):
     return dirs
 
 
-def iter_metadata_entries(repo, decade=None, load_details=True):
+def iter_metadata_entries(repo, decade=None, load_details=True, include_orphans=True):
     for ddir in decade_dirs(repo, decade):
         lawsuit_index = build_lawsuit_index(ddir)
         seen_paths = set()
@@ -271,12 +271,13 @@ def iter_metadata_entries(repo, decade=None, load_details=True):
                     "_decade": ddir.name,
                 }
 
-        for path in sorted(ddir.glob("*.json")):
-            if path.name == "list.json" or path.resolve() in seen_paths:
-                continue
-            entry = entry_from_detail(repo, ddir, path, ddir.name)
-            if entry is not None:
-                yield entry
+        if include_orphans:
+            for path in sorted(ddir.glob("*.json")):
+                if path.name == "list.json" or path.resolve() in seen_paths:
+                    continue
+                entry = entry_from_detail(repo, ddir, path, ddir.name)
+                if entry is not None:
+                    yield entry
 
 
 def metadata_entries(repo, decade=None):
@@ -335,8 +336,12 @@ def metadata_search(repo, field, query, court=None, decade=None, content=False, 
     if field == "case_number":
         return case_number_search(repo, query, court=court, decade=decade, content=content, snippet=snippet, limit=limit)
 
-    load_details = field != "case_number"
-    for entry in iter_metadata_entries(repo, decade, load_details=load_details):
+    skipped_detail_errors = []
+    seen_detail_paths = set()
+    for entry in iter_metadata_entries(repo, decade, load_details=False, include_orphans=False):
+        detail_path = entry.get("_detail_path")
+        if detail_path:
+            seen_detail_paths.add(detail_path.resolve())
         merged = merged_entry(entry)
         if field == "title":
             values = [raw_value_for(merged, "case_name", "title", "name")]
@@ -346,10 +351,43 @@ def metadata_search(repo, field, query, court=None, decade=None, content=False, 
         matched = any(contains(value, query) for value in values)
         if matched:
             entry = with_loaded_detail(entry)
+        elif field == "title" and detail_path:
+            try:
+                entry = with_loaded_detail(entry)
+            except DataFileError as exc:
+                skipped_detail_errors.append(exc)
+                continue
+            detail_merged = merged_entry(entry)
+            matched = any(
+                contains(value, query)
+                for value in [raw_value_for(detail_merged, "case_name", "title", "name")]
+            )
         if matched and court_matches(entry, court):
             results.append(format_entry(repo, entry, content=content, snippet_keyword=query if snippet else None))
             if len(results) >= limit:
                 return results
+    for ddir in decade_dirs(repo, decade):
+        for path in sorted(ddir.glob("*.json")):
+            if path.name == "list.json" or path.resolve() in seen_detail_paths:
+                continue
+            try:
+                entry = entry_from_detail(repo, ddir, path, ddir.name)
+            except DataFileError as exc:
+                skipped_detail_errors.append(exc)
+                continue
+            if entry is None:
+                continue
+            merged = merged_entry(entry)
+            matched = any(
+                contains(value, query)
+                for value in [raw_value_for(merged, "case_name", "title", "name")]
+            )
+            if matched and court_matches(entry, court):
+                results.append(format_entry(repo, entry, content=content, snippet_keyword=query if snippet else None))
+                if len(results) >= limit:
+                    return results
+    if skipped_detail_errors and not results:
+        raise skipped_detail_errors[0]
     return results
 
 

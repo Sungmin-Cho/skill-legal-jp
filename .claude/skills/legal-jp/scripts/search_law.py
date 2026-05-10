@@ -26,7 +26,7 @@ def load_json(path, required=False):
         return []
     except json.JSONDecodeError as exc:
         raise DataFileError(f"error: invalid JSON in {path}: {exc}") from exc
-    except PermissionError as exc:
+    except OSError as exc:
         raise DataFileError(f"error: unreadable JSON file: {path}: {exc}") from exc
 
 
@@ -44,7 +44,7 @@ def stream_json_array(path, required=False):
     eof = False
     try:
         handle = path.open("r", encoding="utf-8")
-    except PermissionError as exc:
+    except OSError as exc:
         raise DataFileError(f"error: unreadable JSON file: {path}: {exc}") from exc
 
     with handle:
@@ -340,7 +340,7 @@ def search_abbreviations(repo, query, limit=20):
 
     exact_results = search_law_names(repo, query, include_repealed=False, exact=True, limit=limit)
     partial_results = []
-    seen = {result.get("num") for result in exact_results}
+    seen = {abbreviation_result_key(result) for result in exact_results}
     by_num, by_name = law_catalog(repo)
     source_files = ["law/egov_abb.json", "law/law_abb.json", "law/ryakusyou.json"]
     for source_file in source_files:
@@ -359,14 +359,34 @@ def search_abbreviations(repo, query, limit=20):
                     result = resolve_abbr_entry(source_entry, source_file, by_num, by_name, f"abbr:{rank}")
                 else:
                     result = entry_with_abbr_source(catalog_entry, source_file, source_entry, f"abbr:{rank}")
-                if result is None or result.get("num") in seen:
+                key = abbreviation_result_key(result) if result is not None else None
+                if result is None or key in seen:
                     continue
-                seen.add(result.get("num"))
+                seen.add(key)
                 if rank == "exact" and len(exact_results) < limit:
                     exact_results.append(result)
                 elif rank == "partial" and len(partial_results) < limit:
                     partial_results.append(result)
     return (exact_results + partial_results)[:limit]
+
+
+def stable_json_key(value):
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
+
+
+def abbreviation_result_key(result):
+    if result.get("status") != "abbreviation_usage":
+        return ("law", result.get("num"), result.get("source_file"))
+
+    raw = result.get("abbr_raw") or {}
+    return (
+        "usage",
+        result.get("abbr_source_file") or result.get("source_file"),
+        result.get("num"),
+        stable_json_key(raw.get("chapter") if "chapter" in raw else result.get("chapter")),
+        stable_json_key(raw.get("article") if "article" in raw else result.get("article")),
+        stable_json_key(raw.get("ryakusyou_lst") if "ryakusyou_lst" in raw else result.get("ryakusyou_lst")),
+    )
 
 
 def build_parser():
