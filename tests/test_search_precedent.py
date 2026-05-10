@@ -1,3 +1,4 @@
+import importlib.util
 import json
 import os
 import subprocess
@@ -85,6 +86,12 @@ class SearchPrecedentTest(unittest.TestCase):
         )
         return json.loads(proc.stdout), proc.stdout
 
+    def _load_module(self):
+        spec = importlib.util.spec_from_file_location("search_precedent", SCRIPT)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
     def test_title_search_returns_title_decade_and_preserved_date(self):
         results, _ = self._run_search("--title", "損害賠償", "--limit", "5")
 
@@ -136,6 +143,36 @@ class SearchPrecedentTest(unittest.TestCase):
         results, _ = self._run_search("--title", "損害賠償", "--court", "最高裁", "--limit", "5")
 
         self.assertEqual(1, len(results))
+
+    def test_court_filter_can_match_trial_type(self):
+        results, _ = self._run_search(
+            "--title", "損害賠償", "--court", "SupremeCourt", "--limit", "5"
+        )
+
+        self.assertEqual(1, len(results))
+        self.assertEqual("令和2(受)123", results[0]["case_number"])
+
+    def test_content_output_keeps_raw_light(self):
+        results, _ = self._run_search("--title", "損害賠償", "--content", "--limit", "5")
+
+        self.assertGreaterEqual(len(results), 1)
+        self.assertIn("不法行為", results[0]["content"])
+        self.assertNotIn("contents", results[0]["raw"])
+
+    def test_metadata_search_stops_before_orphan_details_after_limit(self):
+        module = self._load_module()
+        calls = []
+        original_entry_from_detail = module.entry_from_detail
+
+        def tracking_entry_from_detail(*args, **kwargs):
+            calls.append(args[2])
+            return original_entry_from_detail(*args, **kwargs)
+
+        module.entry_from_detail = tracking_entry_from_detail
+        results = module.metadata_search(self.repo, "title", "損害賠償", limit=1)
+
+        self.assertEqual(1, len(results))
+        self.assertEqual([], calls)
 
     def test_title_search_does_not_match_court_only_fields(self):
         results, _ = self._run_search("--title", "最高裁", "--limit", "5")

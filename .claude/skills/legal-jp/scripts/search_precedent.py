@@ -183,8 +183,7 @@ def decade_dirs(repo, decade=None):
     return [path for path in sorted(precedent_dir.iterdir()) if path.is_dir()]
 
 
-def metadata_entries(repo, decade=None):
-    entries = []
+def iter_metadata_entries(repo, decade=None):
     for ddir in decade_dirs(repo, decade):
         lawsuit_index = build_lawsuit_index(ddir)
         seen_paths = set()
@@ -199,23 +198,24 @@ def metadata_entries(repo, decade=None):
                 detail = load_json(detail_path) if detail_path else None
                 if detail_path:
                     seen_paths.add(detail_path.resolve())
-                entries.append(
-                    {
-                        "_metadata": light_raw(row),
-                        "_detail": detail if isinstance(detail, dict) else None,
-                        "_detail_path": detail_path,
-                        "_source_file": rel_json_path(repo, ddir / "list.json"),
-                        "_decade": ddir.name,
-                    }
-                )
+                yield {
+                    "_metadata": light_raw(row),
+                    "_detail": detail if isinstance(detail, dict) else None,
+                    "_detail_path": detail_path,
+                    "_source_file": rel_json_path(repo, ddir / "list.json"),
+                    "_decade": ddir.name,
+                }
 
         for path in sorted(ddir.glob("*.json")):
             if path.name == "list.json" or path.resolve() in seen_paths:
                 continue
             entry = entry_from_detail(repo, ddir, path, ddir.name)
             if entry is not None:
-                entries.append(entry)
-    return entries
+                yield entry
+
+
+def metadata_entries(repo, decade=None):
+    return list(iter_metadata_entries(repo, decade))
 
 
 def format_entry(repo, entry, content=False, snippet_keyword=None):
@@ -229,7 +229,7 @@ def format_entry(repo, entry, content=False, snippet_keyword=None):
         "decade": entry.get("_decade"),
         "source_file": entry.get("_source_file"),
         "json_path": rel_json_path(repo, detail_path) if detail_path else None,
-        "raw": merged if content else light_raw(merged),
+        "raw": light_raw(merged),
     }
 
     full_content = detail_content(merged)
@@ -244,7 +244,13 @@ def court_matches(entry, court):
     if court is None:
         return True
     merged = merged_entry(entry)
-    return contains(raw_value_for(merged, "court", "court_name"), court)
+    return any(
+        contains(value, court)
+        for value in (
+            raw_value_for(merged, "court", "court_name"),
+            raw_value_for(merged, "trial_type"),
+        )
+    )
 
 
 def metadata_search(repo, field, query, court=None, decade=None, content=False, snippet=False, limit=20):
@@ -253,7 +259,7 @@ def metadata_search(repo, field, query, court=None, decade=None, content=False, 
     if limit == 0:
         return results
 
-    for entry in metadata_entries(repo, decade):
+    for entry in iter_metadata_entries(repo, decade):
         merged = merged_entry(entry)
         if field == "title":
             values = [raw_value_for(merged, "case_name", "title", "name")]
@@ -282,7 +288,7 @@ def text_search(repo, query, court=None, decade=None, content=False, snippet=Fal
     if limit == 0:
         return results
 
-    for entry in metadata_entries(repo, decade):
+    for entry in iter_metadata_entries(repo, decade):
         merged = merged_entry(entry)
         if not contains(detail_content(merged), query):
             continue
