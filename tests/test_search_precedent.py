@@ -122,6 +122,12 @@ class SearchPrecedentTest(unittest.TestCase):
         self.assertGreaterEqual(len(results), 1)
         self.assertEqual("令和2(受)123", results[0]["case_number"])
 
+    def test_case_number_search_normalizes_missing_parentheses(self):
+        results, _ = self._run_search("--case-number", "令和2年受第123号", "--limit", "5")
+
+        self.assertGreaterEqual(len(results), 1)
+        self.assertEqual("令和2(受)123", results[0]["case_number"])
+
     def test_case_number_search_can_match_lawsuit_id(self):
         results, _ = self._run_search("--case-number", "1", "--limit", "5")
 
@@ -144,7 +150,25 @@ class SearchPrecedentTest(unittest.TestCase):
         detail_path = self.precedent_dir / "令和2(受)123_最高裁判所第一小法廷_SupremeCourt_1.json"
         detail_path.write_text("{", encoding="utf-8")
 
-        results, _ = self._run_search("--case-number", "令和2(行ウ)999", "--decade", "2020", "--limit", "5")
+        results, _ = self._run_search("--case-number", "令和2(行ウ)999", "--decade", "2020", "--limit", "1")
+
+        self.assertEqual("令和2(行ウ)999", results[0]["case_number"])
+
+    def test_case_number_search_does_not_disambiguate_unmatched_detail(self):
+        rows = json.loads((self.precedent_dir / "list.json").read_text(encoding="utf-8"))
+        rows.insert(0, {"case_number": "平成1(未)111", "lawsuit_id": "dup"})
+        self._write_json(self.precedent_dir / "list.json", rows)
+        (self.precedent_dir / "bad_A_LowerCourt_dup.json").write_text("{", encoding="utf-8")
+        self._write_json(
+            self.precedent_dir / "good_B_SupremeCourt_dup.json",
+            {
+                "case_name": "重複候補事件",
+                "case_number": "平成1(未)111",
+                "lawsuit_id": "dup",
+            },
+        )
+
+        results, _ = self._run_search("--case-number", "令和2(行ウ)999", "--decade", "2020", "--limit", "1")
 
         self.assertEqual("令和2(行ウ)999", results[0]["case_number"])
 

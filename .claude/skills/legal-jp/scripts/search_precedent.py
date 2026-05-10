@@ -46,7 +46,7 @@ def contains(value, query):
 
 def normalize_case_number(value):
     normalized = unicodedata.normalize("NFKC", text_value(value)).casefold()
-    for token in (" ", "\t", "\n", "\r", "年", "第", "号"):
+    for token in (" ", "\t", "\n", "\r", "年", "第", "号", "(", ")"):
         normalized = normalized.replace(token, "")
     return normalized
 
@@ -131,7 +131,7 @@ def explicit_json_path(ddir, entry):
     return None
 
 
-def discover_json_path(ddir, entry, lawsuit_index):
+def discover_json_path(ddir, entry, lawsuit_index, inspect_details=True):
     explicit = explicit_json_path(ddir, entry)
     if explicit is not None:
         return explicit
@@ -154,9 +154,10 @@ def discover_json_path(ddir, entry, lawsuit_index):
         if trial_matches:
             candidates = trial_matches
 
-    detail_matches = [path for path in candidates if detail_matches_entry(path, entry)]
-    if len(detail_matches) == 1:
-        return ensure_within(ddir, detail_matches[0])
+    if inspect_details:
+        detail_matches = [path for path in candidates if detail_matches_entry(path, entry)]
+        if len(detail_matches) == 1:
+            return ensure_within(ddir, detail_matches[0])
     if len(candidates) == 1:
         return ensure_within(ddir, candidates[0])
     return None
@@ -242,7 +243,7 @@ def iter_metadata_entries(repo, decade=None, load_details=True):
             for row in rows:
                 if not isinstance(row, dict):
                     continue
-                detail_path = discover_json_path(ddir, row, lawsuit_index)
+                detail_path = discover_json_path(ddir, row, lawsuit_index, inspect_details=load_details)
                 detail = load_json(detail_path, required=True) if detail_path and load_details else None
                 if detail_path:
                     seen_paths.add(detail_path.resolve())
