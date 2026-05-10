@@ -264,6 +264,38 @@ class SearchLawTest(unittest.TestCase):
         self.assertIn("trailing data", proc.stderr)
         self.assertIn("ryakusyou.json", proc.stderr)
 
+    def test_malformed_ryakusyou_array_separators_exit_nonzero_with_empty_json(self):
+        malformed_payloads = [
+            '[{"chapter":"x"} {"chapter":"y"}]',
+            '[,{"chapter":"x"}]',
+            '[{"chapter":"x"},,{"chapter":"y"}]',
+            '[{"chapter":"x"},]',
+        ]
+        for payload in malformed_payloads:
+            with self.subTest(payload=payload):
+                (self.repo / "law" / "ryakusyou.json").write_text(payload, encoding="utf-8")
+
+                proc = subprocess.run(
+                    [
+                        sys.executable,
+                        str(SCRIPT),
+                        "--repo",
+                        str(self.repo),
+                        "--abbr",
+                        "存在しない略称",
+                    ],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    encoding="utf-8",
+                    env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+                )
+
+                self.assertEqual(2, proc.returncode)
+                self.assertEqual([], json.loads(proc.stdout))
+                self.assertIn("JSON array", proc.stderr)
+                self.assertIn("ryakusyou.json", proc.stderr)
+
     def test_yomikae_search_preserves_matching_data(self):
         results, stdout = self._run_search("--yomikae", "清算人", "--limit", "5")
 

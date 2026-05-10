@@ -39,6 +39,8 @@ def stream_json_array(path, required=False):
     decoder = json.JSONDecoder()
     buffer = ""
     started = False
+    expect_value = True
+    seen_value = False
     eof = False
     with path.open("r", encoding="utf-8") as handle:
         while True:
@@ -66,6 +68,8 @@ def stream_json_array(path, required=False):
                     raise DataFileError(f"error: unterminated JSON array: {path}")
                 continue
             if buffer[0] == "]":
+                if expect_value and seen_value:
+                    raise DataFileError(f"error: trailing comma in JSON array: {path}")
                 trailing = buffer[1:]
                 if trailing.strip():
                     raise DataFileError(f"error: trailing data after JSON array in {path}")
@@ -76,8 +80,13 @@ def stream_json_array(path, required=False):
                     if chunk.strip():
                         raise DataFileError(f"error: trailing data after JSON array in {path}")
             if buffer[0] == ",":
+                if expect_value:
+                    raise DataFileError(f"error: unexpected comma in JSON array: {path}")
                 buffer = buffer[1:]
+                expect_value = True
                 continue
+            if not expect_value:
+                raise DataFileError(f"error: expected comma or end of JSON array: {path}")
             try:
                 item, idx = decoder.raw_decode(buffer)
             except json.JSONDecodeError as exc:
@@ -91,6 +100,8 @@ def stream_json_array(path, required=False):
                 continue
             yield item
             buffer = buffer[idx:]
+            expect_value = False
+            seen_value = True
 
 
 def iter_json_records(path, required=False):
