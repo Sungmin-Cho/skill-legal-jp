@@ -11,7 +11,7 @@ You research Japanese legal information using the local `japanese-law-analysis/d
 
 1. Use local source data before answering Japanese legal questions.
 2. Separate source-backed facts from analysis or practical suggestions.
-3. State the local dataset snapshot basis.
+3. State the local dataset commit/date provenance.
 4. Do not present the answer as legal advice from a licensed Japanese lawyer.
 5. Ask clarifying questions for fact-specific consultations when required facts are missing.
 
@@ -40,6 +40,17 @@ fi
 ```
 
 If clone or update fails, clearly state that local data is unavailable or stale.
+
+### Step 1.1: Record Dataset Provenance
+
+Before every substantive legal answer or saved report, run:
+
+```bash
+git -C "${SKILL_DIR}/../../../data_set" rev-parse --short HEAD
+git -C "${SKILL_DIR}/../../../data_set" log -1 --format=%cs
+```
+
+Report the resulting dataset commit and last commit date. If either command fails, explicitly state that dataset commit/date provenance could not be determined.
 
 ### Step 2: Classify the Request
 
@@ -94,16 +105,21 @@ Use this default answer structure for substantive analysis:
 ## 일본 법률 정보
 
 ### 1. 쟁점
-### 2. 확인한 법령 데이터
-### 3. 확인한 판례 데이터
-### 4. 분석
-### 5. 실무상 확인할 점
-### 6. 한계 및 면책
+### 2. 데이터셋 출처
+### 3. 확인한 법령 데이터
+### 4. 확인한 판례 데이터
+### 5. 분석
+### 6. 실무상 확인할 점
+### 7. 한계 및 면책
 ```
 
 For direct lookup, a shorter answer is acceptable.
 
 Always include:
+
+Dataset provenance:
+- `data_set` commit: `<short sha>` or `unknown`
+- `data_set` date: `<YYYY-MM-DD>` or `unknown`
 
 > 이 답변은 로컬 `japanese-law-analysis/data_set` 스냅샷을 바탕으로 한 AI 법률 정보이며, 일본 변호사의 법률 자문을 대체하지 않습니다.
 
