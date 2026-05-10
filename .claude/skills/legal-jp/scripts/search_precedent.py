@@ -59,6 +59,18 @@ def normalized_equals(value, query):
     return normalize_case_number(value) == normalize_case_number(query)
 
 
+def require_nonempty_text_query(value, label):
+    if not text_value(value).strip():
+        raise DataFileError(f"error: empty {label} query")
+    return value
+
+
+def require_nonempty_case_query(value):
+    if not normalize_case_number(value):
+        raise DataFileError("error: empty case-number query")
+    return value
+
+
 def raw_value_for(entry, *keys):
     for key in keys:
         if key in entry and entry[key] is not None:
@@ -389,6 +401,7 @@ def main(argv=None):
 
     try:
         if args.title is not None:
+            require_nonempty_text_query(args.title, "title")
             results = metadata_search(
                 repo,
                 "title",
@@ -400,6 +413,7 @@ def main(argv=None):
                 limit=args.limit,
             )
         elif args.case_number is not None:
+            require_nonempty_case_query(args.case_number)
             results = metadata_search(
                 repo,
                 "case_number",
@@ -411,6 +425,7 @@ def main(argv=None):
                 limit=args.limit,
             )
         else:
+            require_nonempty_text_query(args.text, "text")
             results = text_search(
                 repo,
                 args.text,

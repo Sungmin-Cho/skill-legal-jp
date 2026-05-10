@@ -142,6 +142,12 @@ def normalized(value):
     return "".join(str(value or "").casefold().split())
 
 
+def require_nonempty_query(value, label):
+    if not normalized(value):
+        raise DataFileError(f"error: empty {label} query")
+    return value
+
+
 def json_contains(entry, query):
     haystack = json.dumps(entry, ensure_ascii=False, sort_keys=True).casefold()
     return str(query).casefold() in haystack
@@ -288,16 +294,20 @@ def main(argv=None):
 
     try:
         if args.name is not None:
+            require_nonempty_query(args.name, "name")
             results = search_law_names(
                 repo, args.name, args.include_repealed, exact=False, limit=args.limit
             )
         elif args.exact is not None:
+            require_nonempty_query(args.exact, "exact")
             results = search_law_names(
                 repo, args.exact, args.include_repealed, exact=True, limit=args.limit
             )
         elif args.abbr is not None:
+            require_nonempty_query(args.abbr, "abbreviation")
             results = search_abbreviations(repo, args.abbr, limit=args.limit)
         else:
+            require_nonempty_query(args.yomikae, "yomikae")
             results = search_json_sources(
                 repo, args.yomikae, ["law/yomikae.json"], limit=args.limit, required=True
             )

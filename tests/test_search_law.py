@@ -115,6 +115,16 @@ class SearchLawTest(unittest.TestCase):
         )
         return json.loads(proc.stdout), proc.stdout
 
+    def _run_search_failure(self, *args):
+        return subprocess.run(
+            [sys.executable, str(SCRIPT), "--repo", str(self.repo), *args],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+        )
+
     def test_missing_law_directory_exits_nonzero_with_empty_json(self):
         missing_repo = Path(self.tmp.name) / "missing_data_set"
 
@@ -320,6 +330,22 @@ class SearchLawTest(unittest.TestCase):
         self.assertEqual("law/yomikae.json", results[0]["source_file"])
         self.assertEqual("清算人", results[0]["data"][0]["after_word"])
         self.assertIn("清算人", stdout)
+
+    def test_empty_law_queries_exit_nonzero_with_empty_json(self):
+        cases = [
+            ("--name", ""),
+            ("--name", "   "),
+            ("--exact", ""),
+            ("--abbr", " \t "),
+            ("--yomikae", ""),
+        ]
+        for option, value in cases:
+            with self.subTest(option=option, value=value):
+                proc = self._run_search_failure(option, value)
+
+                self.assertEqual(2, proc.returncode)
+                self.assertEqual([], json.loads(proc.stdout))
+                self.assertIn("empty", proc.stderr)
 
 
 if __name__ == "__main__":

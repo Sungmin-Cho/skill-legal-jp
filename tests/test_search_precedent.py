@@ -110,6 +110,23 @@ class SearchPrecedentTest(unittest.TestCase):
         self.assertEqual("2020", results[0]["decade"])
         self.assertEqual({"era": "Reiwa", "year": 2, "month": 5, "day": 1}, results[0]["date"])
 
+    def test_empty_precedent_queries_exit_nonzero_with_empty_json(self):
+        cases = [
+            ("--title", ""),
+            ("--title", "   "),
+            ("--case-number", ""),
+            ("--case-number", " 年 第 号 （ ） "),
+            ("--text", ""),
+            ("--text", "\t"),
+        ]
+        for option, value in cases:
+            with self.subTest(option=option, value=value):
+                proc = self._run_search_failure(option, value, "--decade", "2020")
+
+                self.assertEqual(2, proc.returncode)
+                self.assertEqual([], json.loads(proc.stdout))
+                self.assertIn("empty", proc.stderr)
+
     def test_case_number_search_returns_first_matching_case(self):
         results, _ = self._run_search("--case-number", "令和2", "--limit", "5")
 
