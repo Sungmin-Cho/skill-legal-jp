@@ -97,7 +97,7 @@ python3 .claude/skills/legal-jp/scripts/search_law.py --yomikae 会社法 --limi
 Precedent search:
 
 ```bash
-python3 .claude/skills/legal-jp/scripts/search_precedent.py --title 損害賠償 --limit 3
+python3 .claude/skills/legal-jp/scripts/search_precedent.py --title 損害賠償 --decade 2020 --limit 3
 python3 .claude/skills/legal-jp/scripts/search_precedent.py --text 損害賠償 --decade 2020 --snippet --limit 3
 ```
 
@@ -205,6 +205,7 @@ class SearchLawTests(unittest.TestCase):
         law = self.repo / "law"
         law.mkdir()
         (law / "list.json").write_text(json.dumps([
+            {"name": "総務大臣の所管に属する特例民法法人の監督に関する省令", "num": "平成二十年総務省令第百号"},
             {
                 "date": {"era": "Meiji", "year": 29, "month": 4, "day": 27},
                 "name": "民法",
@@ -218,7 +219,7 @@ class SearchLawTests(unittest.TestCase):
             {"name": "旧民法", "num": "明治二十三年法律第二十八号"}
         ], ensure_ascii=False), encoding="utf-8")
         (law / "egov_abb.json").write_text(json.dumps([
-            {"law_name": "民法", "abbreviation": "民法"}
+            {"num": "明治二十九年法律第八十九号", "abbs": ["民法"]}
         ], ensure_ascii=False), encoding="utf-8")
         (law / "law_abb.json").write_text(json.dumps({
             "明治二十九年法律第八十九号": [
@@ -226,10 +227,18 @@ class SearchLawTests(unittest.TestCase):
             ]
         }, ensure_ascii=False), encoding="utf-8")
         (law / "ryakusyou.json").write_text(json.dumps([
-            {"law_name": "会社法", "abbr": "会社法", "text": "会社法（以下「法」という。）"}
+            {
+                "num": "平成十七年法律第八十六号",
+                "chapter": {"article": "1", "paragraph": "1"},
+                "ryakusyou_lst": [{"ryakusyou": "会社法", "seishiki": "会社法"}],
+            }
         ], ensure_ascii=False), encoding="utf-8")
         (law / "yomikae.json").write_text(json.dumps([
-            {"law_name": "会社法", "text": "会社法中「取締役」とあるのは「清算人」と読み替える。"}
+            {
+                "num": "平成十七年法律第八十六号",
+                "article": {"article": "1", "paragraph": "1"},
+                "data": [{"before_words": ["取締役"], "after_word": "清算人"}],
+            }
         ], ensure_ascii=False), encoding="utf-8")
 
     def tearDown(self):
@@ -258,11 +267,13 @@ class SearchLawTests(unittest.TestCase):
     def test_abbreviation_search_returns_match_source(self):
         data = self.run_script("--abbr", "民法", "--limit", "5")
         self.assertTrue(any(item["source_file"] == "law/egov_abb.json" for item in data))
+        self.assertTrue(any(item.get("abbs") == ["民法"] for item in data))
         self.assertTrue(any(item.get("container_key") == "明治二十九年法律第八十九号" for item in data))
 
     def test_yomikae_search_returns_text_match(self):
         data = self.run_script("--yomikae", "清算人", "--limit", "5")
         self.assertEqual(data[0]["source_file"], "law/yomikae.json")
+        self.assertEqual(data[0]["data"][0]["after_word"], "清算人")
         self.assertIn("清算人", json.dumps(data[0], ensure_ascii=False))
 
 
@@ -410,6 +421,11 @@ def law_entry(entry: dict[str, Any], source_file: str, status: str, matches: lis
         "patch": entry.get("patch"),
         "matches": matches or [],
         "container_key": entry.get("container_key"),
+        "abbs": entry.get("abbs"),
+        "ryakusyou_lst": entry.get("ryakusyou_lst"),
+        "data": entry.get("data"),
+        "article": entry.get("article"),
+        "chapter": entry.get("chapter"),
         "raw": entry,
     }
 
@@ -424,15 +440,21 @@ def search_law_names(repo: Path, keyword: str, exact: bool, include_repealed: bo
         data = load_json(repo / rel)
         if not isinstance(data, list):
             continue
+        exact_matches: list[dict[str, Any]] = []
+        partial_matches: list[dict[str, Any]] = []
         for item in data:
             if not isinstance(item, dict):
                 continue
             name = str(item.get("name", ""))
-            matched = normalize_name(name) == normalized_keyword if exact else normalized_keyword in normalize_name(name)
-            if matched:
-                results.append(law_entry(item, rel, status, ["name"]))
-                if len(results) >= limit:
-                    return results
+            normalized_name = normalize_name(name)
+            if normalized_name == normalized_keyword:
+                exact_matches.append(item)
+            elif not exact and normalized_keyword in normalized_name:
+                partial_matches.append(item)
+        for item in exact_matches + partial_matches:
+            results.append(law_entry(item, rel, status, ["name"]))
+            if len(results) >= limit:
+                return results
     return results
 
 
@@ -574,6 +596,10 @@ class SearchPrecedentTests(unittest.TestCase):
         data = self.run_script("--case-number", "令和2", "--limit", "5")
         self.assertEqual(data[0]["case_number"], "令和2(受)123")
 
+    def test_case_number_search_matches_lawsuit_id_or_json_path(self):
+        data = self.run_script("--case-number", "1", "--limit", "5")
+        self.assertEqual(data[0]["json_path"], "precedent/2020/令和2(受)123_最高裁判所第一小法廷_SupremeCourt_1.json")
+
     def test_text_search_returns_snippet(self):
         data = self.run_script("--text", "不法行為", "--decade", "2020", "--snippet", "--limit", "5")
         self.assertIn("不法行為", data[0]["snippet"])
@@ -654,7 +680,22 @@ def make_snippet(text: str, keyword: str, context: int = 120) -> str:
     return ("..." if start else "") + text[start:end] + ("..." if end < len(text) else "")
 
 
-def discover_json_path(ddir: Path, entry: dict[str, Any]) -> Path | None:
+HEAVY_DETAIL_FIELDS = {"contents", "content", "本文", "full_text"}
+
+
+def build_lawsuit_index(ddir: Path) -> dict[str, Path]:
+    index: dict[str, Path] = {}
+    for path in ddir.glob("*.json"):
+        if path.name == "list.json":
+            continue
+        stem = path.stem
+        lawsuit_id = stem.rsplit("_", 1)[-1]
+        if lawsuit_id:
+            index.setdefault(lawsuit_id, path)
+    return index
+
+
+def discover_json_path(ddir: Path, entry: dict[str, Any], lawsuit_index: dict[str, Path]) -> Path | None:
     explicit = value_for(entry, ["file", "filename", "path"])
     if explicit:
         path = ddir / explicit
@@ -662,10 +703,7 @@ def discover_json_path(ddir: Path, entry: dict[str, Any]) -> Path | None:
     lawsuit_id = value_for(entry, ["lawsuit_id", "id"])
     if not lawsuit_id:
         return None
-    matches = sorted(ddir.glob(f"*_{lawsuit_id}.json"))
-    if not matches:
-        matches = sorted(ddir.glob(f"*{lawsuit_id}.json"))
-    return matches[0] if matches else None
+    return lawsuit_index.get(lawsuit_id)
 
 
 def load_detail(repo: Path, entry: dict[str, Any]) -> dict[str, Any]:
@@ -683,6 +721,10 @@ def merged_entry(repo: Path, entry: dict[str, Any]) -> dict[str, Any]:
     return merged
 
 
+def light_raw(entry: dict[str, Any]) -> dict[str, Any]:
+    return {k: v for k, v in entry.items() if k not in HEAVY_DETAIL_FIELDS}
+
+
 def decade_dirs(repo: Path, decade: str | None) -> list[Path]:
     root = repo / "precedent"
     if decade:
@@ -696,6 +738,7 @@ def decade_dirs(repo: Path, decade: str | None) -> list[Path]:
 def metadata_entries(repo: Path, decade: str | None) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
     for ddir in decade_dirs(repo, decade):
+        lawsuit_index = build_lawsuit_index(ddir)
         data = load_json(ddir / "list.json")
         items = data if isinstance(data, list) else list(data.values()) if isinstance(data, dict) else []
         for item in items:
@@ -704,7 +747,7 @@ def metadata_entries(repo: Path, decade: str | None) -> list[dict[str, Any]]:
             normalized = dict(item)
             normalized["decade"] = ddir.name
             normalized["source_file"] = str((ddir / "list.json").relative_to(repo))
-            json_path = discover_json_path(ddir, normalized)
+            json_path = discover_json_path(ddir, normalized, lawsuit_index)
             if json_path:
                 normalized["json_path"] = str(json_path.relative_to(repo))
             results.append(normalized)
@@ -724,7 +767,7 @@ def format_entry(repo: Path, entry: dict[str, Any], content: bool = False, snipp
         "decade": entry.get("decade"),
         "source_file": entry.get("source_file"),
         "json_path": entry.get("json_path"),
-        "raw": entry,
+        "raw": light_raw(entry),
     }
     detail = load_detail(repo, entry)
     if content and detail:
@@ -774,10 +817,8 @@ def text_search(repo: Path, args: argparse.Namespace, keyword: str) -> list[dict
             entry.setdefault("json_path", rel)
             entry.setdefault("source_file", rel)
             entry.setdefault("decade", path.parent.name)
-            detail = load_json(path)
-            if isinstance(detail, dict):
-                entry.update({k: v for k, v in detail.items() if k not in entry})
-            if args.court and args.court.lower() not in value_for(entry, ["court", "court_name", "裁判所", "courtName"]).lower():
+            merged = merged_entry(repo, entry)
+            if args.court and args.court.lower() not in value_for(merged, ["court", "court_name", "裁判所", "courtName"]).lower():
                 continue
             results.append(format_entry(repo, entry, content=args.content, snippet_keyword=keyword if args.snippet else None))
             if len(results) >= args.limit:
@@ -808,7 +849,7 @@ def main() -> None:
     if args.title:
         results = metadata_search(repo, args, args.title, ["title", "case_name", "事件名", "name"])
     elif args.case_number:
-        results = metadata_search(repo, args, args.case_number, ["case_number", "caseNo", "事件番号", "number", "file", "filename", "path"])
+        results = metadata_search(repo, args, args.case_number, ["case_number", "caseNo", "事件番号", "number", "file", "filename", "path", "json_path", "lawsuit_id"])
     elif args.text:
         results = text_search(repo, args, args.text)
     else:
@@ -829,7 +870,7 @@ Run:
 python3 -m unittest tests/test_search_precedent.py -v
 ```
 
-Expected: 5 tests pass.
+Expected: 6 tests pass.
 
 - [ ] **Step 5: Commit precedent script**
 
@@ -927,7 +968,7 @@ Search active laws first. Use `--include-repealed` only when history, old law, o
 Use:
 
 ```bash
-python3 "${SKILL_DIR}/scripts/search_precedent.py" --title "損害賠償" --limit 5
+python3 "${SKILL_DIR}/scripts/search_precedent.py" --title "損害賠償" --decade 2020 --limit 5
 python3 "${SKILL_DIR}/scripts/search_precedent.py" --case-number "令和2" --limit 5
 python3 "${SKILL_DIR}/scripts/search_precedent.py" --text "損害賠償" --decade 2020 --snippet --limit 5
 ```
@@ -990,7 +1031,7 @@ python3 .claude/skills/legal-jp/scripts/search_law.py --abbr 民法 --limit 3
 Precedent:
 
 ```bash
-python3 .claude/skills/legal-jp/scripts/search_precedent.py --title 損害賠償 --limit 3
+python3 .claude/skills/legal-jp/scripts/search_precedent.py --title 損害賠償 --decade 2020 --limit 3
 python3 .claude/skills/legal-jp/scripts/search_precedent.py --text 損害賠償 --decade 2020 --snippet --limit 3
 ```
 ````
@@ -1073,7 +1114,7 @@ Expected: both commands return valid JSON and at least one of them returns a non
 Run:
 
 ```bash
-python3 .claude/skills/legal-jp/scripts/search_precedent.py --title 損害賠償 --limit 3
+python3 .claude/skills/legal-jp/scripts/search_precedent.py --title 損害賠償 --decade 2020 --limit 3
 python3 .claude/skills/legal-jp/scripts/search_precedent.py --text 損害賠償 --decade 2020 --snippet --limit 3
 ```
 
@@ -1090,7 +1131,7 @@ import subprocess
 from pathlib import Path
 
 def run(args):
-    proc = subprocess.run(args, check=True, capture_output=True, text=True)
+    proc = subprocess.run(args, check=True, capture_output=True, text=True, timeout=30)
     return json.loads(proc.stdout)
 
 law = run(["python3", ".claude/skills/legal-jp/scripts/search_law.py", "--name", "民法", "--limit", "3"])
@@ -1098,6 +1139,7 @@ if not law:
     first_law = json.loads(Path("data_set/law/list.json").read_text(encoding="utf-8"))[0]["name"]
     law = run(["python3", ".claude/skills/legal-jp/scripts/search_law.py", "--exact", first_law, "--limit", "1"])
 assert law, "law search returned no real-data result"
+assert law[0].get("name") == "民法", law[0]
 assert law[0].get("source_file"), law[0]
 assert law[0].get("name"), law[0]
 
@@ -1120,7 +1162,7 @@ print("real-data integration assertions ok")
 PY
 ```
 
-Expected: `real-data integration assertions ok`
+Expected: `real-data integration assertions ok`; any individual command taking longer than 30 seconds fails the gate.
 
 - [ ] **Step 6: Run a workflow smoke prompt**
 
