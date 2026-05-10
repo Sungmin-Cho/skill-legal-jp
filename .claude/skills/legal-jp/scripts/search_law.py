@@ -38,44 +38,59 @@ def stream_json_array(path, required=False):
 
     decoder = json.JSONDecoder()
     buffer = ""
-    in_array = False
+    started = False
+    eof = False
     with path.open("r", encoding="utf-8") as handle:
         while True:
-            chunk = handle.read(65536)
-            if not chunk and not buffer:
-                break
-            buffer += chunk
+            if not eof and len(buffer) < 65536:
+                chunk = handle.read(65536)
+                if chunk:
+                    buffer += chunk
+                else:
+                    eof = True
 
-            while True:
-                stripped = buffer.lstrip()
-                if stripped != buffer:
-                    buffer = stripped
+            buffer = buffer.lstrip()
+            if not started:
                 if not buffer:
-                    break
-                if not in_array:
-                    if buffer[0] != "[":
+                    if eof:
                         raise DataFileError(f"error: expected top-level JSON array: {path}")
-                    buffer = buffer[1:]
-                    in_array = True
                     continue
-                buffer = buffer.lstrip()
-                if not buffer:
-                    break
-                if buffer[0] == "]":
-                    return
-                if buffer[0] == ",":
-                    buffer = buffer[1:]
-                    continue
-                try:
-                    item, idx = decoder.raw_decode(buffer)
-                except json.JSONDecodeError:
+                if buffer[0] != "[":
+                    raise DataFileError(f"error: expected top-level JSON array: {path}")
+                buffer = buffer[1:]
+                started = True
+                continue
+
+            if not buffer:
+                if eof:
+                    raise DataFileError(f"error: unterminated JSON array: {path}")
+                continue
+            if buffer[0] == "]":
+                trailing = buffer[1:]
+                if trailing.strip():
+                    raise DataFileError(f"error: trailing data after JSON array in {path}")
+                while True:
+                    chunk = handle.read(65536)
                     if not chunk:
-                        raise DataFileError(f"error: invalid JSON in {path}: {exc}") from exc
-                    break
-                yield item
-                buffer = buffer[idx:]
-            if not chunk:
-                break
+                        return
+                    if chunk.strip():
+                        raise DataFileError(f"error: trailing data after JSON array in {path}")
+            if buffer[0] == ",":
+                buffer = buffer[1:]
+                continue
+            try:
+                item, idx = decoder.raw_decode(buffer)
+            except json.JSONDecodeError as exc:
+                if eof:
+                    raise DataFileError(f"error: invalid JSON in {path}: {exc}") from exc
+                chunk = handle.read(65536)
+                if chunk:
+                    buffer += chunk
+                    continue
+                eof = True
+                continue
+            yield item
+            buffer = buffer[idx:]
 
 
 def iter_json_records(path, required=False):
