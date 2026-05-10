@@ -210,12 +210,26 @@ class SearchPrecedentTest(unittest.TestCase):
         self.assertEqual("令和2(行ウ)999", results[0]["case_number"])
 
     def test_title_search_does_not_fail_on_unmatched_malformed_detail(self):
+        rows = json.loads((self.precedent_dir / "list.json").read_text(encoding="utf-8"))
+        rows[1]["case_name"] = "行政処分取消請求事件"
+        self._write_json(self.precedent_dir / "list.json", rows)
         detail_path = self.precedent_dir / "令和2(受)123_最高裁判所第一小法廷_SupremeCourt_1.json"
         detail_path.write_text("{", encoding="utf-8")
 
         results, _ = self._run_search("--title", "行政処分", "--decade", "2020", "--limit", "1")
 
         self.assertEqual("行政処分取消請求事件", results[0]["title"])
+
+    def test_title_search_fails_closed_on_corrupt_detail_before_complete_result_set(self):
+        detail_path = self.precedent_dir / "令和2(受)123_最高裁判所第一小法廷_SupremeCourt_1.json"
+        detail_path.write_text("{", encoding="utf-8")
+
+        proc = self._run_search_failure("--title", "行政処分", "--decade", "2020", "--limit", "5")
+
+        self.assertEqual(2, proc.returncode)
+        self.assertEqual([], json.loads(proc.stdout))
+        self.assertIn("invalid JSON", proc.stderr)
+        self.assertIn(detail_path.name, proc.stderr)
 
     def test_case_number_search_does_not_disambiguate_unmatched_detail(self):
         rows = json.loads((self.precedent_dir / "list.json").read_text(encoding="utf-8"))
@@ -307,6 +321,18 @@ class SearchPrecedentTest(unittest.TestCase):
         self.assertEqual(2, proc.returncode)
         self.assertEqual([], json.loads(proc.stdout))
         self.assertIn("invalid JSON", proc.stderr)
+        self.assertIn("list.json", proc.stderr)
+
+    def test_required_list_json_directory_exits_nonzero_with_empty_json(self):
+        path = self.precedent_dir / "list.json"
+        path.unlink()
+        path.mkdir()
+
+        proc = self._run_search_failure("--title", "損害賠償", "--decade", "2020")
+
+        self.assertEqual(2, proc.returncode)
+        self.assertEqual([], json.loads(proc.stdout))
+        self.assertIn("unreadable JSON file", proc.stderr)
         self.assertIn("list.json", proc.stderr)
 
     def test_malformed_selected_detail_json_exits_nonzero_with_empty_json(self):

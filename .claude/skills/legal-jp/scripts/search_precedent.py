@@ -28,7 +28,7 @@ def load_json(path, required=False):
         return None
     except json.JSONDecodeError as exc:
         raise DataFileError(f"error: invalid JSON in {path}: {exc}") from exc
-    except PermissionError as exc:
+    except OSError as exc:
         raise DataFileError(f"error: unreadable JSON file: {path}: {exc}") from exc
 
 
@@ -336,12 +336,14 @@ def metadata_search(repo, field, query, court=None, decade=None, content=False, 
     if field == "case_number":
         return case_number_search(repo, query, court=court, decade=decade, content=content, snippet=snippet, limit=limit)
 
-    skipped_detail_errors = []
     seen_detail_paths = set()
+    emitted_paths = set()
+    metadata_entries_to_scan = []
     for entry in iter_metadata_entries(repo, decade, load_details=False, include_orphans=False):
         detail_path = entry.get("_detail_path")
         if detail_path:
             seen_detail_paths.add(detail_path.resolve())
+        metadata_entries_to_scan.append(entry)
         merged = merged_entry(entry)
         if field == "title":
             values = [raw_value_for(merged, "case_name", "title", "name")]
@@ -351,30 +353,34 @@ def metadata_search(repo, field, query, court=None, decade=None, content=False, 
         matched = any(contains(value, query) for value in values)
         if matched:
             entry = with_loaded_detail(entry)
-        elif field == "title" and detail_path:
-            try:
-                entry = with_loaded_detail(entry)
-            except DataFileError as exc:
-                skipped_detail_errors.append(exc)
-                continue
-            detail_merged = merged_entry(entry)
-            matched = any(
-                contains(value, query)
-                for value in [raw_value_for(detail_merged, "case_name", "title", "name")]
-            )
         if matched and court_matches(entry, court):
             results.append(format_entry(repo, entry, content=content, snippet_keyword=query if snippet else None))
+            if detail_path:
+                emitted_paths.add(detail_path.resolve())
             if len(results) >= limit:
                 return results
+
+    for entry in metadata_entries_to_scan:
+        detail_path = entry.get("_detail_path")
+        if not detail_path or detail_path.resolve() in emitted_paths:
+            continue
+        entry = with_loaded_detail(entry)
+        merged = merged_entry(entry)
+        matched = any(
+            contains(value, query)
+            for value in [raw_value_for(merged, "case_name", "title", "name")]
+        )
+        if matched and court_matches(entry, court):
+            results.append(format_entry(repo, entry, content=content, snippet_keyword=query if snippet else None))
+            emitted_paths.add(detail_path.resolve())
+            if len(results) >= limit:
+                return results
+
     for ddir in decade_dirs(repo, decade):
         for path in sorted(ddir.glob("*.json")):
             if path.name == "list.json" or path.resolve() in seen_detail_paths:
                 continue
-            try:
-                entry = entry_from_detail(repo, ddir, path, ddir.name)
-            except DataFileError as exc:
-                skipped_detail_errors.append(exc)
-                continue
+            entry = entry_from_detail(repo, ddir, path, ddir.name)
             if entry is None:
                 continue
             merged = merged_entry(entry)
@@ -386,8 +392,6 @@ def metadata_search(repo, field, query, court=None, decade=None, content=False, 
                 results.append(format_entry(repo, entry, content=content, snippet_keyword=query if snippet else None))
                 if len(results) >= limit:
                     return results
-    if skipped_detail_errors and not results:
-        raise skipped_detail_errors[0]
     return results
 
 
