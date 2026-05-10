@@ -559,20 +559,42 @@ class SearchPrecedentTests(unittest.TestCase):
         self.repo = Path(self.tmp.name)
         d2020 = self.repo / "precedent" / "2020"
         d2020.mkdir(parents=True)
-        item = {
+        supreme_item = {
             "case_number": "令和2(受)123",
             "court_name": "最高裁判所第一小法廷",
             "date": {"era": "Reiwa", "year": 2, "month": 5, "day": 1},
             "trial_type": "SupremeCourt",
             "lawsuit_id": "1",
         }
-        (d2020 / "list.json").write_text(json.dumps([item], ensure_ascii=False), encoding="utf-8")
+        lower_item = {
+            "case_number": "令和2(行ウ)999",
+            "court_name": "東京地方裁判所",
+            "date": {"era": "Reiwa", "year": 2, "month": 6, "day": 1},
+            "trial_type": "LowerCourt",
+            "lawsuit_id": "1",
+        }
+        (d2020 / "list.json").write_text(json.dumps([supreme_item, lower_item], ensure_ascii=False), encoding="utf-8")
         (d2020 / "令和2(受)123_最高裁判所第一小法廷_SupremeCourt_1.json").write_text(json.dumps({
             "case_name": "損害賠償請求事件",
             "case_number": "令和2(受)123",
             "court_name": "最高裁判所第一小法廷",
             "contents": "不法行為に基づく損害賠償について判断した。",
             "lawsuit_id": "1",
+        }, ensure_ascii=False), encoding="utf-8")
+        (d2020 / "令和2(行ウ)999_東京地方裁判所_LowerCourt_1.json").write_text(json.dumps({
+            "case_name": "行政処分取消請求事件",
+            "case_number": "令和2(行ウ)999",
+            "court_name": "東京地方裁判所",
+            "contents": "下級審の判断。",
+            "lawsuit_id": "1",
+        }, ensure_ascii=False), encoding="utf-8")
+        (d2020 / "昭和27(オ)1250_最高裁判所第三小法廷_SupremeCourt_73986.json").write_text(json.dumps({
+            "case_name": "所有権確認請求事件",
+            "case_number": "昭和27(オ)1250",
+            "court_name": "最高裁判所第三小法廷",
+            "trial_type": "SupremeCourt",
+            "lawsuit_id": "73986",
+            "contents": "list.jsonにない判例。",
         }, ensure_ascii=False), encoding="utf-8")
 
     def tearDown(self):
@@ -600,6 +622,14 @@ class SearchPrecedentTests(unittest.TestCase):
     def test_case_number_search_matches_lawsuit_id_or_json_path(self):
         data = self.run_script("--case-number", "1", "--limit", "5")
         self.assertEqual(data[0]["json_path"], "precedent/2020/令和2(受)123_最高裁判所第一小法廷_SupremeCourt_1.json")
+
+    def test_duplicate_lawsuit_id_uses_matching_trial_type(self):
+        data = self.run_script("--case-number", "令和2(行ウ)999", "--limit", "5")
+        self.assertEqual(data[0]["json_path"], "precedent/2020/令和2(行ウ)999_東京地方裁判所_LowerCourt_1.json")
+
+    def test_case_number_search_includes_detail_not_in_list(self):
+        data = self.run_script("--case-number", "昭和27(オ)1250", "--limit", "5")
+        self.assertEqual(data[0]["json_path"], "precedent/2020/昭和27(オ)1250_最高裁判所第三小法廷_SupremeCourt_73986.json")
 
     def test_text_search_returns_snippet(self):
         data = self.run_script("--text", "不法行為", "--decade", "2020", "--snippet", "--limit", "5")
@@ -692,19 +722,31 @@ def make_snippet(text: str, keyword: str, context: int = 120) -> str:
 HEAVY_DETAIL_FIELDS = {"contents", "content", "本文", "full_text"}
 
 
-def build_lawsuit_index(ddir: Path) -> dict[str, Path]:
-    index: dict[str, Path] = {}
+def build_lawsuit_index(ddir: Path) -> dict[str, list[Path]]:
+    index: dict[str, list[Path]] = {}
     for path in ddir.glob("*.json"):
         if path.name == "list.json":
             continue
         stem = path.stem
         lawsuit_id = stem.rsplit("_", 1)[-1]
         if lawsuit_id:
-            index.setdefault(lawsuit_id, path)
+            index.setdefault(lawsuit_id, []).append(path)
     return index
 
 
-def discover_json_path(ddir: Path, entry: dict[str, Any], lawsuit_index: dict[str, Path]) -> Path | None:
+def detail_matches_entry(path: Path, entry: dict[str, Any]) -> bool:
+    detail = load_json(path)
+    if not isinstance(detail, dict):
+        return False
+    for keys in (["case_number", "caseNo", "事件番号", "number"], ["court", "court_name", "裁判所", "courtName"], ["trial_type"]):
+        expected = value_for(entry, keys)
+        actual = value_for(detail, keys)
+        if expected and actual and expected != actual:
+            return False
+    return True
+
+
+def discover_json_path(ddir: Path, entry: dict[str, Any], lawsuit_index: dict[str, list[Path]]) -> Path | None:
     explicit = value_for(entry, ["file", "filename", "path"])
     if explicit:
         path = ddir / explicit
@@ -712,7 +754,18 @@ def discover_json_path(ddir: Path, entry: dict[str, Any], lawsuit_index: dict[st
     lawsuit_id = value_for(entry, ["lawsuit_id", "id"])
     if not lawsuit_id:
         return None
-    return lawsuit_index.get(lawsuit_id)
+    candidates = lawsuit_index.get(lawsuit_id, [])
+    if not candidates:
+        return None
+    trial_type = value_for(entry, ["trial_type"])
+    if trial_type:
+        trial_matches = [path for path in candidates if f"_{trial_type}_{lawsuit_id}" in path.name]
+        if len(trial_matches) == 1:
+            return trial_matches[0]
+    detail_matches = [path for path in candidates if detail_matches_entry(path, entry)]
+    if len(detail_matches) == 1:
+        return detail_matches[0]
+    return candidates[0] if len(candidates) == 1 else None
 
 
 def load_detail(repo: Path, entry: dict[str, Any]) -> dict[str, Any]:
@@ -748,6 +801,7 @@ def metadata_entries(repo: Path, decade: str | None) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
     for ddir in decade_dirs(repo, decade):
         lawsuit_index = build_lawsuit_index(ddir)
+        seen_paths: set[str] = set()
         data = load_json(ddir / "list.json")
         items = data if isinstance(data, list) else list(data.values()) if isinstance(data, dict) else []
         for item in items:
@@ -759,6 +813,21 @@ def metadata_entries(repo: Path, decade: str | None) -> list[dict[str, Any]]:
             json_path = discover_json_path(ddir, normalized, lawsuit_index)
             if json_path:
                 normalized["json_path"] = str(json_path.relative_to(repo))
+                seen_paths.add(normalized["json_path"])
+            results.append(normalized)
+        for path in sorted(ddir.glob("*.json")):
+            if path.name == "list.json":
+                continue
+            rel = str(path.relative_to(repo))
+            if rel in seen_paths:
+                continue
+            detail = load_json(path)
+            if not isinstance(detail, dict):
+                continue
+            normalized = light_raw(detail)
+            normalized["decade"] = ddir.name
+            normalized["source_file"] = rel
+            normalized["json_path"] = rel
             results.append(normalized)
     return results
 
@@ -879,7 +948,7 @@ Run:
 python3 -m unittest tests/test_search_precedent.py -v
 ```
 
-Expected: 6 tests pass.
+Expected: 8 tests pass.
 
 - [ ] **Step 5: Commit precedent script**
 
