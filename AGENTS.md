@@ -22,3 +22,19 @@ outputs/{topic}_{work_type}_YYYYMMDD.md
 ```
 
 Use `.docx`, `.xlsx`, `.pptx`, or `.pdf` only when explicitly requested.
+
+## Script Reference
+
+Law:
+
+```bash
+python3 .claude/skills/legal-jp/scripts/search_law.py --name 民法 --limit 3
+python3 .claude/skills/legal-jp/scripts/search_law.py --abbr 民法 --limit 3
+```
+
+Precedent:
+
+```bash
+python3 .claude/skills/legal-jp/scripts/search_precedent.py --title 損害賠償 --decade 2020 --limit 3
+python3 .claude/skills/legal-jp/scripts/search_precedent.py --text 損害賠償 --decade 2020 --snippet --limit 3
+```
