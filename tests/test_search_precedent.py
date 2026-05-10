@@ -259,6 +259,53 @@ class SearchPrecedentTest(unittest.TestCase):
         self.assertEqual([], json.loads(proc.stdout))
         self.assertIn("escapes dataset directory", proc.stderr)
 
+    def test_discovered_detail_symlink_cannot_escape_decade_dir(self):
+        outside_path = Path(self.tmp.name) / "outside.json"
+        self._write_json(
+            outside_path,
+            {
+                "case_name": "外部ファイル事件",
+                "case_number": "令和2(外)777",
+                "court_name": "外部裁判所",
+                "trial_type": "SupremeCourt",
+                "lawsuit_id": "777",
+                "contents": "outside",
+            },
+        )
+        link_path = self.precedent_dir / "令和2(外)777_外部裁判所_SupremeCourt_777.json"
+        os.symlink(outside_path, link_path)
+        self._write_json(
+            self.precedent_dir / "list.json",
+            [
+                {
+                    "case_number": "令和2(外)777",
+                    "court_name": "外部裁判所",
+                    "trial_type": "SupremeCourt",
+                    "lawsuit_id": "777",
+                }
+            ],
+        )
+
+        proc = self._run_search_failure("--title", "外部ファイル", "--decade", "2020")
+
+        self.assertEqual(2, proc.returncode)
+        self.assertEqual([], json.loads(proc.stdout))
+        self.assertIn("escapes dataset directory", proc.stderr)
+
+    def test_decade_path_escape_exits_nonzero_with_empty_json(self):
+        proc = self._run_search_failure("--title", "民法", "--decade", "../law")
+
+        self.assertEqual(2, proc.returncode)
+        self.assertEqual([], json.loads(proc.stdout))
+        self.assertIn("invalid precedent decade", proc.stderr)
+
+    def test_missing_explicit_decade_exits_nonzero_with_empty_json(self):
+        proc = self._run_search_failure("--title", "損害賠償", "--decade", "2099")
+
+        self.assertEqual(2, proc.returncode)
+        self.assertEqual([], json.loads(proc.stdout))
+        self.assertIn("precedent decade directory not found", proc.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

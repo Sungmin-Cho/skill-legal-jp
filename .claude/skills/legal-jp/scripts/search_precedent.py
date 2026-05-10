@@ -52,7 +52,7 @@ def raw_value_for(entry, *keys):
 
 def rel_json_path(repo, path):
     try:
-        return path.relative_to(repo).as_posix()
+        return path.resolve().relative_to(repo.resolve()).as_posix()
     except ValueError:
         return path.as_posix()
 
@@ -74,8 +74,9 @@ def build_lawsuit_index(ddir):
     for path in sorted(ddir.glob("*.json")):
         if path.name == "list.json":
             continue
+        safe_path = ensure_within(ddir, path)
         lawsuit_id = path.stem.rsplit("_", 1)[-1]
-        index.setdefault(lawsuit_id, []).append(path)
+        index.setdefault(lawsuit_id, []).append(safe_path)
     return index
 
 
@@ -130,22 +131,22 @@ def discover_json_path(ddir, entry, lawsuit_index):
     if not candidates:
         return None
     if len(candidates) == 1:
-        return candidates[0]
+        return ensure_within(ddir, candidates[0])
 
     trial_type = raw_value_for(entry, "trial_type")
     if trial_type is not None:
         token = f"_{trial_type}_"
         trial_matches = [path for path in candidates if token in path.stem]
         if len(trial_matches) == 1:
-            return trial_matches[0]
+            return ensure_within(ddir, trial_matches[0])
         if trial_matches:
             candidates = trial_matches
 
     detail_matches = [path for path in candidates if detail_matches_entry(path, entry)]
     if len(detail_matches) == 1:
-        return detail_matches[0]
+        return ensure_within(ddir, detail_matches[0])
     if len(candidates) == 1:
-        return candidates[0]
+        return ensure_within(ddir, candidates[0])
     return None
 
 
@@ -185,6 +186,7 @@ def merged_entry(entry):
 
 
 def entry_from_detail(repo, ddir, path, decade):
+    path = ensure_within(ddir, path)
     detail = load_json(path, required=True)
     if not isinstance(detail, dict):
         return None
@@ -200,8 +202,13 @@ def entry_from_detail(repo, ddir, path, decade):
 def decade_dirs(repo, decade=None):
     precedent_dir = repo / "precedent"
     if decade:
-        ddir = precedent_dir / str(decade)
-        return [ddir] if ddir.is_dir() else []
+        decade = str(decade)
+        if not decade.isdigit() or len(decade) != 4:
+            raise DataFileError(f"error: invalid precedent decade: {decade}")
+        ddir = ensure_within(precedent_dir, precedent_dir / decade)
+        if not ddir.is_dir():
+            raise DataFileError(f"error: precedent decade directory not found: {ddir}")
+        return [ddir]
     return [path for path in sorted(precedent_dir.iterdir()) if path.is_dir()]
 
 
