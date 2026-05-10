@@ -109,12 +109,17 @@ legal-jp/
 │   └── scripts/
 │       ├── search_law.py           # 법령 메타데이터, 약칭, 읽기 대체 검색
 │       └── search_precedent.py     # 판례 메타데이터, 본문 검색
+├── .agents/skills/legal-jp/
+│   ├── SKILL.md                    # Codex project-scope skill
+│   └── agents/openai.yaml          # Codex UI 메타데이터
 ├── tests/                          # 스크립트와 문서 계약 테스트
 ├── AGENTS.md                       # Codex용 작업 계약
 ├── CLAUDE.md                       # Claude Code용 프로젝트 안내
 ├── README.md                       # 일본어 README
 ├── README.ko.md                    # 한국어 README
+├── .deep-review/                   # 리뷰 실행 로그. git 관리 대상 아님
 ├── data_set/                       # 로컬 데이터셋. git 관리 대상 아님
+├── docs/                           # 로컬 계획·검토 문서. git 관리 대상 아님
 └── outputs/                        # 저장 리포트. git 관리 대상 아님
 ```
 
@@ -122,6 +127,8 @@ legal-jp/
 
 - Claude Code: `.claude/skills/legal-jp/SKILL.md`와 `CLAUDE.md`
 - Codex: `$legal-jp` project skill, `.agents/skills/legal-jp/SKILL.md`, `AGENTS.md`
+
+Codex에서는 프로젝트 루트의 `.agents/skills/`가 project-scope skill 표준 위치입니다. 이 저장소는 `.codex-plugin/plugin.json`을 사용하지 않습니다.
 
 두 진입점 모두 실질적인 일본 법률 답변에서는 다음을 지킵니다.
 
@@ -140,6 +147,15 @@ outputs/{topic}_{work_type}_YYYYMMDD.md
 ```
 
 `.docx`, `.xlsx`, `.pptx`, `.pdf`는 사용자가 명시한 경우에만 사용합니다.
+
+## Git 관리 제외
+
+다음 디렉터리는 로컬 생성물 또는 외부 데이터이므로 git에 포함하지 않습니다.
+
+- `.deep-review/`: deep-review 리뷰/대응 로그
+- `data_set/`: `japanese-law-analysis/data_set` 로컬 clone
+- `docs/`: 로컬 계획·검토 문서
+- `outputs/`: 사용자 요청으로 저장하는 조사 리포트
 
 ## 데이터 출처 및 라이선스
 

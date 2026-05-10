@@ -109,12 +109,17 @@ legal-jp/
 │   └── scripts/
 │       ├── search_law.py           # 法令メタデータ・略称・読み替え検索
 │       └── search_precedent.py     # 裁判例メタデータ・本文検索
+├── .agents/skills/legal-jp/
+│   ├── SKILL.md                    # Codex project-scope skill
+│   └── agents/openai.yaml          # Codex UI メタデータ
 ├── tests/                          # スクリプトと文書契約のテスト
 ├── AGENTS.md                       # Codex 用の作業契約
 ├── CLAUDE.md                       # Claude Code 用のプロジェクト案内
 ├── README.md                       # 日本語 README
 ├── README.ko.md                    # 한국어 README
+├── .deep-review/                   # レビュー実行ログ。git 管理対象外
 ├── data_set/                       # ローカルデータセット。git 管理対象外
+├── docs/                           # ローカル計画・検討文書。git 管理対象外
 └── outputs/                        # 保存レポート。git 管理対象外
 ```
 
@@ -122,6 +127,8 @@ legal-jp/
 
 - Claude Code: `.claude/skills/legal-jp/SKILL.md` と `CLAUDE.md`
 - Codex: `$legal-jp` project skill, `.agents/skills/legal-jp/SKILL.md`, and `AGENTS.md`
+
+Codex ではプロジェクトルートの `.agents/skills/` が project-scope skill の標準位置です。このリポジトリでは `.codex-plugin/plugin.json` は使いません。
 
 どちらの入口でも、実質的な日本法回答では次を守ります。
 
@@ -140,6 +147,15 @@ outputs/{topic}_{work_type}_YYYYMMDD.md
 ```
 
 `.docx`、`.xlsx`、`.pptx`、`.pdf` はユーザーが明示した場合にだけ使います。
+
+## Git 管理対象外
+
+次のディレクトリはローカル生成物または外部データなので、git には含めません。
+
+- `.deep-review/`: deep-review のレビュー/対応ログ
+- `data_set/`: `japanese-law-analysis/data_set` のローカル clone
+- `docs/`: ローカルの計画・検討文書
+- `outputs/`: ユーザー依頼で保存する調査レポート
 
 ## データの出典とライセンス
 
