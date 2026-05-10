@@ -42,7 +42,12 @@ def stream_json_array(path, required=False):
     expect_value = True
     seen_value = False
     eof = False
-    with path.open("r", encoding="utf-8") as handle:
+    try:
+        handle = path.open("r", encoding="utf-8")
+    except PermissionError as exc:
+        raise DataFileError(f"error: unreadable JSON file: {path}: {exc}") from exc
+
+    with handle:
         while True:
             if not eof and len(buffer) < 65536:
                 chunk = handle.read(65536)

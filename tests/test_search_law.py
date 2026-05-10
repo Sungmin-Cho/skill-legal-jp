@@ -325,6 +325,26 @@ class SearchLawTest(unittest.TestCase):
         self.assertIn("JSON file not found", proc.stderr)
         self.assertIn("egov_abb.json", proc.stderr)
 
+    def test_unreadable_required_ryakusyou_exits_nonzero_with_empty_json(self):
+        path = self.repo / "law" / "ryakusyou.json"
+        path.chmod(0)
+        try:
+            proc = subprocess.run(
+                [sys.executable, str(SCRIPT), "--repo", str(self.repo), "--abbr", "存在しない略称"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+                env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+            )
+        finally:
+            path.chmod(0o644)
+
+        self.assertEqual(2, proc.returncode)
+        self.assertEqual([], json.loads(proc.stdout))
+        self.assertIn("unreadable JSON file", proc.stderr)
+        self.assertIn("ryakusyou.json", proc.stderr)
+
     def test_abbr_validates_later_required_sources_even_when_limit_is_filled(self):
         (self.repo / "law" / "ryakusyou.json").unlink()
 
