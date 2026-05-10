@@ -121,7 +121,7 @@ legal-jp/
 ## エージェントの入口
 
 - Claude Code: `.claude/skills/legal-jp/SKILL.md` と `CLAUDE.md`
-- Codex: `AGENTS.md`
+- Codex: `$legal-jp:legal-jp` project skill, `.agents/skills/legal-jp/SKILL.md`, `.codex-plugin/plugin.json`, and `AGENTS.md`
 
 どちらの入口でも、実質的な日本法回答では次を守ります。
 

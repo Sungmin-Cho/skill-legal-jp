@@ -23,6 +23,21 @@ class AgentDocsTest(unittest.TestCase):
             )
         )
 
+    def test_codex_project_skill_requires_dataset_provenance(self):
+        content = (
+            ROOT / ".agents" / "skills" / "legal-jp" / "SKILL.md"
+        ).read_text(encoding="utf-8")
+        self.assert_provenance_contract(content)
+        self.assertIn(".claude/skills/legal-jp/scripts", content)
+        self.assertIn("pull --ff-only", content)
+
+    def test_codex_plugin_exposes_project_skill(self):
+        content = (ROOT / ".codex-plugin" / "plugin.json").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('"skills": "./.agents/skills/"', content)
+        self.assertIn('"name": "legal-jp"', content)
+
 
 if __name__ == "__main__":
     unittest.main()
