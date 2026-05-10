@@ -63,11 +63,13 @@ class SearchLawTest(unittest.TestCase):
         self._write_json(
             law_dir / "law_abb.json",
             {
-                "明治二十九年法律第八十九号": {
-                    "num": "明治二十九年法律第八十九号",
-                    "name": "民法",
-                    "note": "民法の法令略称",
-                }
+                "明治二十九年法律第八十九号": [
+                    {
+                        "num": "明治二十九年法律第八十九号",
+                        "name": "民法",
+                        "note": "民法の法令略称",
+                    }
+                ]
             },
         )
         self._write_json(

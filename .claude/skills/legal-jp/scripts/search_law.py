@@ -76,12 +76,26 @@ def iter_json_records(path):
             yield item if isinstance(item, dict) else {"raw": item}
     elif isinstance(data, dict):
         for key, value in data.items():
-            if isinstance(value, dict):
-                item = dict(value)
+            if isinstance(value, list):
+                children = value
             else:
-                item = {"raw": value}
-            item["container_key"] = key
-            yield item
+                children = [value]
+            for child in children:
+                if isinstance(child, dict):
+                    item = dict(child)
+                else:
+                    item = {"raw": child}
+                item["container_key"] = key
+                yield item
+
+
+def append_limited(results, result, limit):
+    if limit <= 0:
+        return False
+    if len(results) >= limit:
+        return False
+    results.append(result)
+    return len(results) < limit
 
 
 def normalized(value):
@@ -123,34 +137,54 @@ def law_entry(entry, source_file, status, matches=None):
     }
 
 
-def search_law_names(repo, query, include_repealed=False, exact=False):
+def search_law_names(repo, query, include_repealed=False, exact=False, limit=20):
     sources = [("law/list.json", "active")]
     if include_repealed:
         sources.append(("law/repeal_list.json", "repealed"))
 
+    limit = max(limit, 0)
     query_norm = normalized(query)
     results = []
     for source_file, status in sources:
+        remaining = limit - len(results)
+        if remaining <= 0:
+            break
         exact_matches = []
         partial_matches = []
         for entry in iter_json_records(repo / source_file):
             name = law_name(entry)
             name_norm = normalized(name)
             if name_norm == query_norm:
-                exact_matches.append(law_entry(entry, source_file, status, ["name:exact"]))
-            elif not exact and query_norm in name_norm:
+                if len(exact_matches) < remaining:
+                    exact_matches.append(law_entry(entry, source_file, status, ["name:exact"]))
+            elif (
+                not exact
+                and query_norm in name_norm
+                and len(partial_matches) < remaining
+            ):
                 partial_matches.append(law_entry(entry, source_file, status, ["name:partial"]))
         results.extend(exact_matches)
-        results.extend(partial_matches)
+        remaining = limit - len(results)
+        if remaining > 0:
+            results.extend(partial_matches[:remaining])
     return results
 
 
-def search_json_sources(repo, query, source_files, status="metadata"):
+def search_json_sources(repo, query, source_files, status="metadata", limit=20):
+    limit = max(limit, 0)
     results = []
+    if limit == 0:
+        return results
     for source_file in source_files:
         for entry in iter_json_records(repo / source_file):
             if json_contains(entry, query):
-                results.append(law_entry(entry, source_file, status, ["json:contains"]))
+                should_continue = append_limited(
+                    results,
+                    law_entry(entry, source_file, status, ["json:contains"]),
+                    limit,
+                )
+                if not should_continue:
+                    return results
     return results
 
 
@@ -176,20 +210,24 @@ def main(argv=None):
         return
 
     if args.name is not None:
-        results = search_law_names(repo, args.name, args.include_repealed, exact=False)
+        results = search_law_names(
+            repo, args.name, args.include_repealed, exact=False, limit=args.limit
+        )
     elif args.exact is not None:
-        results = search_law_names(repo, args.exact, args.include_repealed, exact=True)
+        results = search_law_names(
+            repo, args.exact, args.include_repealed, exact=True, limit=args.limit
+        )
     elif args.abbr is not None:
         results = search_json_sources(
             repo,
             args.abbr,
             ["law/egov_abb.json", "law/law_abb.json", "law/ryakusyou.json"],
+            limit=args.limit,
         )
     else:
-        results = search_json_sources(repo, args.yomikae, ["law/yomikae.json"])
+        results = search_json_sources(repo, args.yomikae, ["law/yomikae.json"], limit=args.limit)
 
-    limit = max(args.limit, 0)
-    print(json.dumps(results[:limit], ensure_ascii=False, indent=2))
+    print(json.dumps(results, ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":
