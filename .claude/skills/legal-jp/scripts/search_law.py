@@ -262,8 +262,6 @@ def search_abbreviations(repo, query, limit=20):
                 exact_results.append(law_entry(entry, source_file, "metadata", ["abbr:exact"]))
             elif rank == "partial" and len(partial_results) < limit:
                 partial_results.append(law_entry(entry, source_file, "metadata", ["abbr:partial"]))
-            if len(exact_results) >= limit:
-                return exact_results[:limit]
     return (exact_results + partial_results)[:limit]
 
 

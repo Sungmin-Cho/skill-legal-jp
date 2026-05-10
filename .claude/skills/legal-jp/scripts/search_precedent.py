@@ -3,6 +3,7 @@ import argparse
 import json
 import os
 import sys
+import unicodedata
 from pathlib import Path
 
 
@@ -41,6 +42,17 @@ def text_value(value):
 
 def contains(value, query):
     return str(query).casefold() in text_value(value).casefold()
+
+
+def normalize_case_number(value):
+    normalized = unicodedata.normalize("NFKC", text_value(value)).casefold()
+    for token in (" ", "\t", "\n", "\r", "年", "第", "号"):
+        normalized = normalized.replace(token, "")
+    return normalized
+
+
+def case_number_contains(value, query):
+    return normalize_case_number(query) in normalize_case_number(value)
 
 
 def raw_value_for(entry, *keys):
@@ -209,10 +221,17 @@ def decade_dirs(repo, decade=None):
         if not ddir.is_dir():
             raise DataFileError(f"error: precedent decade directory not found: {ddir}")
         return [ddir]
-    return [path for path in sorted(precedent_dir.iterdir()) if path.is_dir()]
+    dirs = []
+    for path in sorted(precedent_dir.iterdir()):
+        if not path.is_dir():
+            continue
+        if not path.name.isdigit() or len(path.name) != 4:
+            raise DataFileError(f"error: invalid precedent decade directory: {path}")
+        dirs.append(ensure_within(precedent_dir, path))
+    return dirs
 
 
-def iter_metadata_entries(repo, decade=None):
+def iter_metadata_entries(repo, decade=None, load_details=True):
     for ddir in decade_dirs(repo, decade):
         lawsuit_index = build_lawsuit_index(ddir)
         seen_paths = set()
@@ -224,7 +243,7 @@ def iter_metadata_entries(repo, decade=None):
                 if not isinstance(row, dict):
                     continue
                 detail_path = discover_json_path(ddir, row, lawsuit_index)
-                detail = load_json(detail_path, required=True) if detail_path else None
+                detail = load_json(detail_path, required=True) if detail_path and load_details else None
                 if detail_path:
                     seen_paths.add(detail_path.resolve())
                 yield {
@@ -245,6 +264,14 @@ def iter_metadata_entries(repo, decade=None):
 
 def metadata_entries(repo, decade=None):
     return list(iter_metadata_entries(repo, decade))
+
+
+def with_loaded_detail(entry):
+    if entry.get("_detail") is None and entry.get("_detail_path"):
+        entry = dict(entry)
+        detail = load_json(entry["_detail_path"], required=True)
+        entry["_detail"] = detail if isinstance(detail, dict) else None
+    return entry
 
 
 def format_entry(repo, entry, content=False, snippet_keyword=None):
@@ -288,7 +315,8 @@ def metadata_search(repo, field, query, court=None, decade=None, content=False, 
     if limit == 0:
         return results
 
-    for entry in iter_metadata_entries(repo, decade):
+    load_details = field != "case_number"
+    for entry in iter_metadata_entries(repo, decade, load_details=load_details):
         merged = merged_entry(entry)
         if field == "title":
             values = [raw_value_for(merged, "case_name", "title", "name")]
@@ -304,7 +332,13 @@ def metadata_search(repo, field, query, court=None, decade=None, content=False, 
         else:
             values = []
 
-        if any(contains(value, query) for value in values) and court_matches(entry, court):
+        if field == "case_number":
+            matched = any(case_number_contains(value, query) for value in values)
+        else:
+            matched = any(contains(value, query) for value in values)
+        if matched:
+            entry = with_loaded_detail(entry)
+        if matched and court_matches(entry, court):
             results.append(format_entry(repo, entry, content=content, snippet_keyword=query if snippet else None))
             if len(results) >= limit:
                 return results

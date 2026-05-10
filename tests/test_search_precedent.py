@@ -116,6 +116,12 @@ class SearchPrecedentTest(unittest.TestCase):
         self.assertGreaterEqual(len(results), 1)
         self.assertEqual("令和2(受)123", results[0]["case_number"])
 
+    def test_case_number_search_normalizes_common_citation_forms(self):
+        results, _ = self._run_search("--case-number", "令和２年（受）第１２３号", "--limit", "5")
+
+        self.assertGreaterEqual(len(results), 1)
+        self.assertEqual("令和2(受)123", results[0]["case_number"])
+
     def test_case_number_search_can_match_lawsuit_id(self):
         results, _ = self._run_search("--case-number", "1", "--limit", "5")
 
@@ -133,6 +139,14 @@ class SearchPrecedentTest(unittest.TestCase):
             "precedent/2020/令和2(行ウ)999_東京地方裁判所_LowerCourt_1.json",
             results[0]["json_path"],
         )
+
+    def test_case_number_search_does_not_load_unmatched_detail(self):
+        detail_path = self.precedent_dir / "令和2(受)123_最高裁判所第一小法廷_SupremeCourt_1.json"
+        detail_path.write_text("{", encoding="utf-8")
+
+        results, _ = self._run_search("--case-number", "令和2(行ウ)999", "--decade", "2020", "--limit", "5")
+
+        self.assertEqual("令和2(行ウ)999", results[0]["case_number"])
 
     def test_case_number_search_includes_orphan_detail_json(self):
         results, _ = self._run_search("--case-number", "昭和27(オ)1250", "--limit", "5")
@@ -287,6 +301,28 @@ class SearchPrecedentTest(unittest.TestCase):
         )
 
         proc = self._run_search_failure("--title", "外部ファイル", "--decade", "2020")
+
+        self.assertEqual(2, proc.returncode)
+        self.assertEqual([], json.loads(proc.stdout))
+        self.assertIn("escapes dataset directory", proc.stderr)
+
+    def test_implicit_decade_symlink_cannot_escape_precedent_dir(self):
+        outside_decade = Path(self.tmp.name) / "outside_decade"
+        outside_decade.mkdir()
+        self._write_json(
+            outside_decade / "list.json",
+            [
+                {
+                    "case_name": "外部ディレクトリ事件",
+                    "case_number": "令和2(外)888",
+                    "court_name": "外部裁判所",
+                }
+            ],
+        )
+        symlink_dir = self.repo / "precedent" / "2030"
+        os.symlink(outside_decade, symlink_dir)
+
+        proc = self._run_search_failure("--title", "外部ディレクトリ")
 
         self.assertEqual(2, proc.returncode)
         self.assertEqual([], json.loads(proc.stdout))
