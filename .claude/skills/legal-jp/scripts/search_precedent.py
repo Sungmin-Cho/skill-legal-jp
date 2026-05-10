@@ -332,23 +332,18 @@ def metadata_search(repo, field, query, court=None, decade=None, content=False, 
     if limit == 0:
         return results
 
+    if field == "case_number":
+        return case_number_search(repo, query, court=court, decade=decade, content=content, snippet=snippet, limit=limit)
+
     load_details = field != "case_number"
     for entry in iter_metadata_entries(repo, decade, load_details=load_details):
         merged = merged_entry(entry)
         if field == "title":
             values = [raw_value_for(merged, "case_name", "title", "name")]
-        elif field == "case_number":
-            case_number_values = [raw_value_for(merged, "case_number")]
-            lawsuit_id_values = [raw_value_for(merged, "lawsuit_id")]
         else:
             values = []
 
-        if field == "case_number":
-            matched = any(case_number_contains(value, query) for value in case_number_values) or any(
-                normalized_equals(value, query) for value in lawsuit_id_values
-            )
-        else:
-            matched = any(contains(value, query) for value in values)
+        matched = any(contains(value, query) for value in values)
         if matched:
             entry = with_loaded_detail(entry)
         if matched and court_matches(entry, court):
@@ -356,6 +351,41 @@ def metadata_search(repo, field, query, court=None, decade=None, content=False, 
             if len(results) >= limit:
                 return results
     return results
+
+
+def case_number_search(repo, query, court=None, decade=None, content=False, snippet=False, limit=20):
+    exact_case_results = []
+    exact_lawsuit_results = []
+    partial_case_results = []
+    seen = set()
+
+    for entry in iter_metadata_entries(repo, decade, load_details=False):
+        merged = merged_entry(entry)
+        case_number = raw_value_for(merged, "case_number")
+        lawsuit_id = raw_value_for(merged, "lawsuit_id")
+        if normalized_equals(case_number, query):
+            bucket = exact_case_results
+        elif normalized_equals(lawsuit_id, query):
+            bucket = exact_lawsuit_results
+        elif case_number_contains(case_number, query):
+            bucket = partial_case_results
+        else:
+            continue
+
+        entry = with_loaded_detail(entry)
+        if not court_matches(entry, court):
+            continue
+        formatted = format_entry(repo, entry, content=content, snippet_keyword=query if snippet else None)
+        key = formatted.get("json_path") or (formatted.get("source_file"), formatted.get("case_number"))
+        if key in seen:
+            continue
+        seen.add(key)
+        if len(bucket) < limit:
+            bucket.append(formatted)
+        if len(exact_case_results) >= limit:
+            return exact_case_results[:limit]
+
+    return (exact_case_results + exact_lawsuit_results + partial_case_results)[:limit]
 
 
 def text_search(repo, query, court=None, decade=None, content=False, snippet=False, limit=20):

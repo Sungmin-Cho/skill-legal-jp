@@ -173,6 +173,25 @@ class SearchPrecedentTest(unittest.TestCase):
 
         self.assertEqual([], results)
 
+    def test_case_number_search_ranks_exact_lawsuit_id_before_partial_case_number(self):
+        rows = [
+            {"case_number": "平成1(ワ)1235", "lawsuit_id": "x", "trial_type": "LowerCourt"},
+            {"case_number": "平成2(ネ)3308", "lawsuit_id": "123", "trial_type": "LowerCourt"},
+        ]
+        self._write_json(self.precedent_dir / "list.json", rows)
+        self._write_json(
+            self.precedent_dir / "平成1(ワ)1235_東京地方裁判所_LowerCourt_x.json",
+            {"case_name": "部分一致事件", "case_number": "平成1(ワ)1235", "lawsuit_id": "x"},
+        )
+        self._write_json(
+            self.precedent_dir / "平成2(ネ)3308_東京高等裁判所_LowerCourt_123.json",
+            {"case_name": "事件ID一致事件", "case_number": "平成2(ネ)3308", "lawsuit_id": "123"},
+        )
+
+        results, _ = self._run_search("--case-number", "123", "--decade", "2020", "--limit", "1")
+
+        self.assertEqual("平成2(ネ)3308", results[0]["case_number"])
+
     def test_duplicate_lawsuit_id_uses_matching_trial_type_details(self):
         results, _ = self._run_search("--case-number", "令和2(行ウ)999", "--limit", "5")
 

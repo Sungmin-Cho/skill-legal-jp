@@ -214,11 +214,44 @@ class SearchLawTest(unittest.TestCase):
 
         self.assertEqual("民法", results[0]["name"])
         self.assertEqual("law/list.json", results[0]["source_file"])
-        self.assertTrue(any(result["source_file"] == "law/egov_abb.json" for result in results))
-        self.assertTrue(any(result["abbs"] == ["民法"] for result in results))
-        self.assertTrue(
-            any(result["container_key"] == "明治二十九年法律第八十九号" for result in results)
+        self.assertTrue(all(result["name"] for result in results))
+
+    def test_abbr_search_hydrates_source_hits_to_canonical_laws(self):
+        law_dir = self.repo / "law"
+        laws = json.loads((law_dir / "list.json").read_text(encoding="utf-8"))
+        laws.extend(
+            [
+                {"name": "労働基準法", "num": "昭和二十二年法律第四十九号"},
+                {"name": "沖縄の復帰に伴う労働省関係法令の適用の特別措置等に関する政令", "num": "昭和四十七年政令第百五十六号"},
+            ]
         )
+        self._write_json(law_dir / "list.json", laws)
+        self._write_json(law_dir / "egov_abb.json", [{"num": "昭和二十二年法律第四十九号", "abbs": ["労基法"]}])
+        self._write_json(
+            law_dir / "law_abb.json",
+            {
+                "昭和四十七年労働省令第十八号": [
+                    {"num": "昭和二十二年法律第四十九号", "name": "労基法"}
+                ]
+            },
+        )
+        self._write_json(
+            law_dir / "ryakusyou.json",
+            [
+                {
+                    "num": "昭和四十七年政令第百五十六号",
+                    "ryakusyou_lst": [{"ryakusyou": "労基法", "seishiki": "労働基準法"}],
+                }
+            ],
+        )
+
+        results, _ = self._run_search("--abbr", "労基法", "--limit", "5")
+
+        self.assertEqual(1, len(results))
+        self.assertEqual("労働基準法", results[0]["name"])
+        self.assertEqual("昭和二十二年法律第四十九号", results[0]["num"])
+        self.assertEqual("law/list.json", results[0]["source_file"])
+        self.assertNotEqual("昭和四十七年政令第百五十六号", results[0]["num"])
 
     def test_missing_required_abbr_source_exits_nonzero_with_empty_json(self):
         (self.repo / "law" / "egov_abb.json").unlink()

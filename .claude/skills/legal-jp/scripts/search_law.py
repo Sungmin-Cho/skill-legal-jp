@@ -214,6 +214,61 @@ def law_entry(entry, source_file, status, matches=None):
     }
 
 
+def law_catalog(repo):
+    by_num = {}
+    by_name = {}
+    for source_file, status, required in (
+        ("law/list.json", "active", True),
+        ("law/repeal_list.json", "repealed", False),
+    ):
+        for entry in iter_json_records(repo / source_file, required=required):
+            catalog_entry = (entry, source_file, status)
+            num = entry.get("num")
+            if num is not None:
+                by_num.setdefault(str(num), catalog_entry)
+            name = law_name(entry)
+            if name is not None:
+                by_name.setdefault(normalized(name), catalog_entry)
+    return by_num, by_name
+
+
+def entry_with_abbr_source(catalog_entry, source_file, source_entry, match_label):
+    law, law_source, status = catalog_entry
+    result = law_entry(law, law_source, status, [match_label, f"abbr_source:{source_file}"])
+    result["abbr_source_file"] = source_file
+    result["abbr_raw"] = source_entry
+    return result
+
+
+def resolve_abbr_entry(entry, source_file, by_num, by_name, match_label):
+    num = entry.get("num") or entry.get("container_key")
+    if num is not None and str(num) in by_num:
+        return entry_with_abbr_source(by_num[str(num)], source_file, entry, match_label)
+
+    for value in field_values(entry, "law_name", "formal", "title"):
+        catalog_entry = by_name.get(normalized(value))
+        if catalog_entry is not None:
+            return entry_with_abbr_source(catalog_entry, source_file, entry, match_label)
+    return None
+
+
+def matching_ryakusyou_targets(entry, query, by_name):
+    for item in entry.get("ryakusyou_lst") or []:
+        if not isinstance(item, dict):
+            continue
+        values = field_values(item, "ryakusyou", "abb", "name", "seishiki")
+        rank = match_rank(values, query)
+        if not rank:
+            continue
+        formal_name = item.get("seishiki")
+        catalog_entry = by_name.get(normalized(formal_name))
+        if catalog_entry is None:
+            continue
+        source_entry = dict(entry)
+        source_entry["ryakusyou_lst"] = [item]
+        yield rank, source_entry, catalog_entry
+
+
 def search_law_names(repo, query, include_repealed=False, exact=False, limit=20):
     sources = [("law/list.json", "active")]
     if include_repealed:
@@ -260,14 +315,30 @@ def search_abbreviations(repo, query, limit=20):
 
     exact_results = search_law_names(repo, query, include_repealed=False, exact=True, limit=limit)
     partial_results = []
+    seen = {result.get("num") for result in exact_results}
+    by_num, by_name = law_catalog(repo)
     source_files = ["law/egov_abb.json", "law/law_abb.json", "law/ryakusyou.json"]
     for source_file in source_files:
         for entry in iter_json_records(repo / source_file, required=True):
-            rank = match_rank(abbr_values(entry), query)
-            if rank == "exact" and len(exact_results) < limit:
-                exact_results.append(law_entry(entry, source_file, "metadata", ["abbr:exact"]))
-            elif rank == "partial" and len(partial_results) < limit:
-                partial_results.append(law_entry(entry, source_file, "metadata", ["abbr:partial"]))
+            if source_file == "law/ryakusyou.json":
+                matches = matching_ryakusyou_targets(entry, query, by_name)
+            else:
+                rank = match_rank(abbr_values(entry), query)
+                resolved = resolve_abbr_entry(entry, source_file, by_num, by_name, f"abbr:{rank}") if rank else None
+                matches = [(rank, entry, None)] if resolved is not None else []
+
+            for rank, source_entry, catalog_entry in matches:
+                if catalog_entry is None:
+                    result = resolve_abbr_entry(source_entry, source_file, by_num, by_name, f"abbr:{rank}")
+                else:
+                    result = entry_with_abbr_source(catalog_entry, source_file, source_entry, f"abbr:{rank}")
+                if result is None or result.get("num") in seen:
+                    continue
+                seen.add(result.get("num"))
+                if rank == "exact" and len(exact_results) < limit:
+                    exact_results.append(result)
+                elif rank == "partial" and len(partial_results) < limit:
+                    partial_results.append(result)
     return (exact_results + partial_results)[:limit]
 
 
