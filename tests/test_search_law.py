@@ -253,6 +253,40 @@ class SearchLawTest(unittest.TestCase):
         self.assertEqual("law/list.json", results[0]["source_file"])
         self.assertNotEqual("昭和四十七年政令第百五十六号", results[0]["num"])
 
+    def test_abbr_search_keeps_unresolved_ryakusyou_usage_evidence(self):
+        laws = json.loads((self.repo / "law" / "list.json").read_text(encoding="utf-8"))
+        laws.append(
+            {
+                "name": "経済産業省・財務省・内閣府関係株式会社商工組合中央金庫法施行規則",
+                "num": "平成二十年内閣府・財務省・経済産業省令第一号",
+            }
+        )
+        self._write_json(self.repo / "law" / "list.json", laws)
+        self._write_json(
+            self.repo / "law" / "ryakusyou.json",
+            [
+                {
+                    "num": "平成二十年内閣府・財務省・経済産業省令第一号",
+                    "chapter": {"chapter": 4, "article": "83"},
+                    "ryakusyou_lst": [
+                        {
+                            "ryakusyou": "報酬等",
+                            "seishiki": "報酬、賞与その他の職務執行の対価",
+                        }
+                    ],
+                }
+            ],
+        )
+
+        results, _ = self._run_search("--abbr", "報酬等", "--limit", "5")
+
+        self.assertEqual(1, len(results))
+        self.assertIsNone(results[0]["name"])
+        self.assertEqual("abbreviation_usage", results[0]["status"])
+        self.assertEqual("law/ryakusyou.json", results[0]["source_file"])
+        self.assertEqual("平成二十年内閣府・財務省・経済産業省令第一号", results[0]["num"])
+        self.assertEqual("報酬等", results[0]["ryakusyou_lst"][0]["ryakusyou"])
+
     def test_missing_required_abbr_source_exits_nonzero_with_empty_json(self):
         (self.repo / "law" / "egov_abb.json").unlink()
 

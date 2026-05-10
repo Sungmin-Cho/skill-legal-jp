@@ -240,6 +240,28 @@ def entry_with_abbr_source(catalog_entry, source_file, source_entry, match_label
     return result
 
 
+def abbr_usage_entry(source_entry, source_file, match_label):
+    return {
+        "name": None,
+        "num": source_entry.get("num") or source_entry.get("container_key"),
+        "id": None,
+        "date": None,
+        "source_file": source_file,
+        "status": "abbreviation_usage",
+        "patch": None,
+        "matches": [match_label, f"abbr_source:{source_file}"],
+        "container_key": source_entry.get("container_key"),
+        "abbs": source_entry.get("abbs"),
+        "ryakusyou_lst": source_entry.get("ryakusyou_lst"),
+        "data": None,
+        "article": source_entry.get("article"),
+        "chapter": source_entry.get("chapter"),
+        "raw": source_entry,
+        "abbr_source_file": source_file,
+        "abbr_raw": source_entry,
+    }
+
+
 def resolve_abbr_entry(entry, source_file, by_num, by_name, match_label):
     num = entry.get("num") or entry.get("container_key")
     if num is not None and str(num) in by_num:
@@ -262,8 +284,6 @@ def matching_ryakusyou_targets(entry, query, by_name):
             continue
         formal_name = item.get("seishiki")
         catalog_entry = by_name.get(normalized(formal_name))
-        if catalog_entry is None:
-            continue
         source_entry = dict(entry)
         source_entry["ryakusyou_lst"] = [item]
         yield rank, source_entry, catalog_entry
@@ -328,7 +348,9 @@ def search_abbreviations(repo, query, limit=20):
                 matches = [(rank, entry, None)] if resolved is not None else []
 
             for rank, source_entry, catalog_entry in matches:
-                if catalog_entry is None:
+                if source_file == "law/ryakusyou.json" and catalog_entry is None:
+                    result = abbr_usage_entry(source_entry, source_file, f"abbr:{rank}")
+                elif catalog_entry is None:
                     result = resolve_abbr_entry(source_entry, source_file, by_num, by_name, f"abbr:{rank}")
                 else:
                     result = entry_with_abbr_source(catalog_entry, source_file, source_entry, f"abbr:{rank}")
