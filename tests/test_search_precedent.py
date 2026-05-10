@@ -219,6 +219,46 @@ class SearchPrecedentTest(unittest.TestCase):
         self.assertIn("invalid JSON", proc.stderr)
         self.assertIn(detail_path.name, proc.stderr)
 
+    def test_explicit_absolute_detail_path_exits_nonzero(self):
+        outside_path = Path(self.tmp.name) / "outside.json"
+        self._write_json(
+            outside_path,
+            {
+                "case_name": "外部ファイル事件",
+                "case_number": "令和2(外)1",
+                "contents": "outside",
+            },
+        )
+        item = dict(self.supreme_item)
+        item["json_path"] = str(outside_path)
+        self._write_json(self.precedent_dir / "list.json", [item])
+
+        proc = self._run_search_failure("--title", "外部ファイル", "--decade", "2020")
+
+        self.assertEqual(2, proc.returncode)
+        self.assertEqual([], json.loads(proc.stdout))
+        self.assertIn("absolute precedent detail path is not allowed", proc.stderr)
+
+    def test_explicit_relative_detail_path_cannot_escape_decade_dir(self):
+        outside_path = self.repo / "precedent" / "outside.json"
+        self._write_json(
+            outside_path,
+            {
+                "case_name": "外部ファイル事件",
+                "case_number": "令和2(外)1",
+                "contents": "outside",
+            },
+        )
+        item = dict(self.supreme_item)
+        item["json_path"] = "../outside.json"
+        self._write_json(self.precedent_dir / "list.json", [item])
+
+        proc = self._run_search_failure("--title", "外部ファイル", "--decade", "2020")
+
+        self.assertEqual(2, proc.returncode)
+        self.assertEqual([], json.loads(proc.stdout))
+        self.assertIn("escapes dataset directory", proc.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

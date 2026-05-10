@@ -57,6 +57,18 @@ def rel_json_path(repo, path):
         return path.as_posix()
 
 
+def ensure_within(base, candidate):
+    base_resolved = base.resolve()
+    candidate_resolved = candidate.resolve()
+    try:
+        candidate_resolved.relative_to(base_resolved)
+    except ValueError as exc:
+        raise DataFileError(
+            f"error: precedent detail path escapes dataset directory: {candidate}"
+        ) from exc
+    return candidate_resolved
+
+
 def build_lawsuit_index(ddir):
     index = {}
     for path in sorted(ddir.glob("*.json")):
@@ -89,21 +101,20 @@ def explicit_json_path(ddir, entry):
         if not value:
             continue
         path = Path(str(value))
-        candidates = []
         if path.is_absolute():
-            candidates.append(path)
-        else:
-            candidates.extend([ddir / path, ddir.parent / path])
-            if "precedent/" in str(value):
-                parts = Path(str(value)).parts
-                try:
-                    precedent_idx = parts.index("precedent")
-                    candidates.append(ddir.parents[1] / Path(*parts[precedent_idx:]))
-                except (ValueError, IndexError):
-                    pass
+            raise DataFileError(f"error: absolute precedent detail path is not allowed: {path}")
+        candidates = []
+        candidates.extend([ddir / path, ddir.parent / path])
+        if "precedent/" in str(value):
+            parts = Path(str(value)).parts
+            try:
+                precedent_idx = parts.index("precedent")
+                candidates.append(ddir.parents[1] / Path(*parts[precedent_idx:]))
+            except (ValueError, IndexError):
+                pass
         for candidate in candidates:
             if candidate.is_file():
-                return candidate
+                return ensure_within(ddir, candidate)
     return None
 
 

@@ -131,6 +131,40 @@ class SearchLawTest(unittest.TestCase):
         self.assertEqual([], json.loads(proc.stdout))
         self.assertIn("law directory not found", proc.stderr)
 
+    def test_missing_required_law_list_exits_nonzero_with_empty_json(self):
+        (self.repo / "law" / "list.json").unlink()
+
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPT), "--repo", str(self.repo), "--name", "民法"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+        )
+
+        self.assertEqual(2, proc.returncode)
+        self.assertEqual([], json.loads(proc.stdout))
+        self.assertIn("JSON file not found", proc.stderr)
+        self.assertIn("list.json", proc.stderr)
+
+    def test_malformed_required_law_list_exits_nonzero_with_empty_json(self):
+        (self.repo / "law" / "list.json").write_text("[", encoding="utf-8")
+
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPT), "--repo", str(self.repo), "--name", "民法"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+        )
+
+        self.assertEqual(2, proc.returncode)
+        self.assertEqual([], json.loads(proc.stdout))
+        self.assertIn("invalid JSON", proc.stderr)
+        self.assertIn("list.json", proc.stderr)
+
     def test_name_search_ranks_exact_active_minpo_first(self):
         results, _ = self._run_search("--name", "民法", "--limit", "5")
 
@@ -145,14 +179,53 @@ class SearchLawTest(unittest.TestCase):
         repealed = [result for result in results if result["name"] == "旧民法"]
         self.assertEqual("repealed", repealed[0]["status"])
 
+    def test_include_repealed_ranks_exact_before_active_partials(self):
+        self._write_json(
+            self.repo / "law" / "list.json",
+            [
+                {"name": "旧特別措置法施行規則", "num": "令和元年府令第一号"},
+                {"name": "旧特別措置法施行令", "num": "令和元年政令第二号"},
+            ],
+        )
+        self._write_json(
+            self.repo / "law" / "repeal_list.json",
+            [{"name": "旧特別措置法", "num": "昭和四十年法律第一号"}],
+        )
+
+        results, _ = self._run_search(
+            "--name", "旧特別措置法", "--include-repealed", "--limit", "1"
+        )
+
+        self.assertEqual("旧特別措置法", results[0]["name"])
+        self.assertEqual("repealed", results[0]["status"])
+
     def test_abbr_search_includes_egov_and_container_key_results(self):
         results, _ = self._run_search("--abbr", "民法", "--limit", "5")
 
+        self.assertEqual("民法", results[0]["name"])
+        self.assertEqual("law/list.json", results[0]["source_file"])
         self.assertTrue(any(result["source_file"] == "law/egov_abb.json" for result in results))
         self.assertTrue(any(result["abbs"] == ["民法"] for result in results))
         self.assertTrue(
             any(result["container_key"] == "明治二十九年法律第八十九号" for result in results)
         )
+
+    def test_missing_required_abbr_source_exits_nonzero_with_empty_json(self):
+        (self.repo / "law" / "egov_abb.json").unlink()
+
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPT), "--repo", str(self.repo), "--abbr", "民法"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+        )
+
+        self.assertEqual(2, proc.returncode)
+        self.assertEqual([], json.loads(proc.stdout))
+        self.assertIn("JSON file not found", proc.stderr)
+        self.assertIn("egov_abb.json", proc.stderr)
 
     def test_yomikae_search_preserves_matching_data(self):
         results, stdout = self._run_search("--yomikae", "清算人", "--limit", "5")

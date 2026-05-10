@@ -12,15 +12,28 @@ DEFAULT_REPO = os.environ.get(
 EXIT_DATA_ERROR = 2
 
 
-def load_json(path):
-    if not path.exists():
+class DataFileError(Exception):
+    pass
+
+
+def load_json(path, required=False):
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            return json.load(handle)
+    except FileNotFoundError as exc:
+        if required:
+            raise DataFileError(f"error: JSON file not found: {path}") from exc
         return []
-    with path.open("r", encoding="utf-8") as handle:
-        return json.load(handle)
+    except json.JSONDecodeError as exc:
+        raise DataFileError(f"error: invalid JSON in {path}: {exc}") from exc
+    except PermissionError as exc:
+        raise DataFileError(f"error: unreadable JSON file: {path}: {exc}") from exc
 
 
-def stream_json_array(path):
+def stream_json_array(path, required=False):
     if not path.exists():
+        if required:
+            raise DataFileError(f"error: JSON file not found: {path}")
         return
 
     decoder = json.JSONDecoder()
@@ -41,7 +54,7 @@ def stream_json_array(path):
                     break
                 if not in_array:
                     if buffer[0] != "[":
-                        raise ValueError(f"{path} is not a JSON array")
+                        raise DataFileError(f"error: expected top-level JSON array: {path}")
                     buffer = buffer[1:]
                     in_array = True
                     continue
@@ -57,7 +70,7 @@ def stream_json_array(path):
                     item, idx = decoder.raw_decode(buffer)
                 except json.JSONDecodeError:
                     if not chunk:
-                        raise
+                        raise DataFileError(f"error: invalid JSON in {path}: {exc}") from exc
                     break
                 yield item
                 buffer = buffer[idx:]
@@ -65,13 +78,13 @@ def stream_json_array(path):
                 break
 
 
-def iter_json_records(path):
+def iter_json_records(path, required=False):
     if path.name == "ryakusyou.json":
-        for item in stream_json_array(path):
+        for item in stream_json_array(path, required=required):
             yield item if isinstance(item, dict) else {"raw": item}
         return
 
-    data = load_json(path)
+    data = load_json(path, required=required)
     if isinstance(data, list):
         for item in data:
             yield item if isinstance(item, dict) else {"raw": item}
@@ -106,6 +119,37 @@ def normalized(value):
 def json_contains(entry, query):
     haystack = json.dumps(entry, ensure_ascii=False, sort_keys=True).casefold()
     return str(query).casefold() in haystack
+
+
+def field_values(entry, *keys):
+    values = []
+    for key in keys:
+        value = entry.get(key)
+        if value is None:
+            continue
+        if isinstance(value, list):
+            values.extend(item for item in value if item is not None)
+        else:
+            values.append(value)
+    return values
+
+
+def abbr_values(entry):
+    values = field_values(entry, "abbs", "name", "law_name", "formal", "title")
+    for item in entry.get("ryakusyou_lst") or []:
+        if isinstance(item, dict):
+            values.extend(field_values(item, "ryakusyou", "seishiki", "name", "abb"))
+    return values
+
+
+def match_rank(values, query):
+    query_norm = normalized(query)
+    normalized_values = [normalized(value) for value in values if value is not None]
+    if any(value == query_norm for value in normalized_values):
+        return "exact"
+    if any(query_norm in value for value in normalized_values):
+        return "partial"
+    return None
 
 
 def law_name(entry):
@@ -145,39 +189,27 @@ def search_law_names(repo, query, include_repealed=False, exact=False, limit=20)
 
     limit = max(limit, 0)
     query_norm = normalized(query)
-    results = []
+    exact_results = []
+    partial_results = []
     for source_file, status in sources:
-        remaining = limit - len(results)
-        if remaining <= 0:
-            break
-        exact_matches = []
-        partial_matches = []
-        for entry in iter_json_records(repo / source_file):
+        for entry in iter_json_records(repo / source_file, required=True):
             name = law_name(entry)
             name_norm = normalized(name)
             if name_norm == query_norm:
-                if len(exact_matches) < remaining:
-                    exact_matches.append(law_entry(entry, source_file, status, ["name:exact"]))
-            elif (
-                not exact
-                and query_norm in name_norm
-                and len(partial_matches) < remaining
-            ):
-                partial_matches.append(law_entry(entry, source_file, status, ["name:partial"]))
-        results.extend(exact_matches)
-        remaining = limit - len(results)
-        if remaining > 0:
-            results.extend(partial_matches[:remaining])
-    return results
+                if len(exact_results) < limit:
+                    exact_results.append(law_entry(entry, source_file, status, ["name:exact"]))
+            elif not exact and query_norm in name_norm and len(partial_results) < limit:
+                partial_results.append(law_entry(entry, source_file, status, ["name:partial"]))
+    return (exact_results + partial_results)[:limit]
 
 
-def search_json_sources(repo, query, source_files, status="metadata", limit=20):
+def search_json_sources(repo, query, source_files, status="metadata", limit=20, required=False):
     limit = max(limit, 0)
     results = []
     if limit == 0:
         return results
     for source_file in source_files:
-        for entry in iter_json_records(repo / source_file):
+        for entry in iter_json_records(repo / source_file, required=required):
             if json_contains(entry, query):
                 should_continue = append_limited(
                     results,
@@ -187,6 +219,26 @@ def search_json_sources(repo, query, source_files, status="metadata", limit=20):
                 if not should_continue:
                     return results
     return results
+
+
+def search_abbreviations(repo, query, limit=20):
+    limit = max(limit, 0)
+    if limit == 0:
+        return []
+
+    exact_results = search_law_names(repo, query, include_repealed=False, exact=True, limit=limit)
+    partial_results = []
+    source_files = ["law/egov_abb.json", "law/law_abb.json", "law/ryakusyou.json"]
+    for source_file in source_files:
+        for entry in iter_json_records(repo / source_file, required=True):
+            rank = match_rank(abbr_values(entry), query)
+            if rank == "exact" and len(exact_results) < limit:
+                exact_results.append(law_entry(entry, source_file, "metadata", ["abbr:exact"]))
+            elif rank == "partial" and len(partial_results) < limit:
+                partial_results.append(law_entry(entry, source_file, "metadata", ["abbr:partial"]))
+            if len(exact_results) >= limit:
+                return exact_results[:limit]
+    return (exact_results + partial_results)[:limit]
 
 
 def build_parser():
@@ -210,23 +262,25 @@ def main(argv=None):
         print("[]")
         return EXIT_DATA_ERROR
 
-    if args.name is not None:
-        results = search_law_names(
-            repo, args.name, args.include_repealed, exact=False, limit=args.limit
-        )
-    elif args.exact is not None:
-        results = search_law_names(
-            repo, args.exact, args.include_repealed, exact=True, limit=args.limit
-        )
-    elif args.abbr is not None:
-        results = search_json_sources(
-            repo,
-            args.abbr,
-            ["law/egov_abb.json", "law/law_abb.json", "law/ryakusyou.json"],
-            limit=args.limit,
-        )
-    else:
-        results = search_json_sources(repo, args.yomikae, ["law/yomikae.json"], limit=args.limit)
+    try:
+        if args.name is not None:
+            results = search_law_names(
+                repo, args.name, args.include_repealed, exact=False, limit=args.limit
+            )
+        elif args.exact is not None:
+            results = search_law_names(
+                repo, args.exact, args.include_repealed, exact=True, limit=args.limit
+            )
+        elif args.abbr is not None:
+            results = search_abbreviations(repo, args.abbr, limit=args.limit)
+        else:
+            results = search_json_sources(
+                repo, args.yomikae, ["law/yomikae.json"], limit=args.limit, required=True
+            )
+    except DataFileError as exc:
+        print(str(exc), file=sys.stderr)
+        print("[]")
+        return EXIT_DATA_ERROR
 
     print(json.dumps(results, ensure_ascii=False, indent=2))
     return 0
