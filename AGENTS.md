@@ -2,7 +2,7 @@
 
 This file is the Codex project contract for `legal-jp`.
 
-Use the `$legal-jp:legal-jp` project skill whenever the task involves Japanese law, precedent, statute metadata, legal research, or fact-specific legal questions. The project plugin manifest is `.codex-plugin/plugin.json`, and the Codex skill body is `.agents/skills/legal-jp/SKILL.md`.
+Use the `$legal-jp` project skill whenever the task involves Japanese law, precedent, statute metadata, legal research, or fact-specific legal questions. The Codex project skill body is `.agents/skills/legal-jp/SKILL.md`.
 
 ## Required Workflow
 

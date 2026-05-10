@@ -121,7 +121,7 @@ legal-jp/
 ## 에이전트 진입점
 
 - Claude Code: `.claude/skills/legal-jp/SKILL.md`와 `CLAUDE.md`
-- Codex: `$legal-jp:legal-jp` project skill, `.agents/skills/legal-jp/SKILL.md`, `.codex-plugin/plugin.json`, `AGENTS.md`
+- Codex: `$legal-jp` project skill, `.agents/skills/legal-jp/SKILL.md`, `AGENTS.md`
 
 두 진입점 모두 실질적인 일본 법률 답변에서는 다음을 지킵니다.
 

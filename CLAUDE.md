@@ -12,7 +12,6 @@ Use `.claude/skills/legal-jp/SKILL.md` for Japanese legal information, law looku
 - Local data path: `data_set/`
 - Claude skill: `.claude/skills/legal-jp/SKILL.md`
 - Codex project skill: `.agents/skills/legal-jp/SKILL.md`
-- Codex plugin manifest: `.codex-plugin/plugin.json`
 - Search scripts: `.claude/skills/legal-jp/scripts/`
 - Saved outputs: `outputs/`
 
@@ -54,7 +53,6 @@ legal-jp/
 │       └── search_precedent.py
 ├── tests/
 ├── .agents/skills/legal-jp/
-├── .codex-plugin/plugin.json
 ├── AGENTS.md
 ├── CLAUDE.md
 ├── README.md
