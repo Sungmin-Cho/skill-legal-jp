@@ -287,6 +287,27 @@ class SearchLawTest(unittest.TestCase):
         self.assertEqual("平成二十年内閣府・財務省・経済産業省令第一号", results[0]["num"])
         self.assertEqual("報酬等", results[0]["ryakusyou_lst"][0]["ryakusyou"])
 
+    def test_abbr_search_does_not_match_ryakusyou_formal_text_only(self):
+        self._write_json(
+            self.repo / "law" / "ryakusyou.json",
+            [
+                {
+                    "num": "平成二十年内閣府・財務省・経済産業省令第一号",
+                    "ryakusyou_lst": [
+                        {
+                            "ryakusyou": "改正法",
+                            "seishiki": "民法の一部を改正する法律",
+                        }
+                    ],
+                }
+            ],
+        )
+
+        results, _ = self._run_search("--abbr", "民法", "--limit", "10")
+
+        self.assertTrue(all(result["status"] != "abbreviation_usage" for result in results))
+        self.assertTrue(all(result["ryakusyou_lst"] is None for result in results))
+
     def test_missing_required_abbr_source_exits_nonzero_with_empty_json(self):
         (self.repo / "law" / "egov_abb.json").unlink()
 

@@ -278,7 +278,7 @@ def matching_ryakusyou_targets(entry, query, by_name):
     for item in entry.get("ryakusyou_lst") or []:
         if not isinstance(item, dict):
             continue
-        values = field_values(item, "ryakusyou", "abb", "name", "seishiki")
+        values = field_values(item, "ryakusyou", "abb", "name")
         rank = match_rank(values, query)
         if not rank:
             continue
