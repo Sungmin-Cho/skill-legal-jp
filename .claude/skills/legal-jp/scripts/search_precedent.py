@@ -55,6 +55,10 @@ def case_number_contains(value, query):
     return normalize_case_number(query) in normalize_case_number(value)
 
 
+def normalized_equals(value, query):
+    return normalize_case_number(value) == normalize_case_number(query)
+
+
 def raw_value_for(entry, *keys):
     for key in keys:
         if key in entry and entry[key] is not None:
@@ -322,19 +326,15 @@ def metadata_search(repo, field, query, court=None, decade=None, content=False, 
         if field == "title":
             values = [raw_value_for(merged, "case_name", "title", "name")]
         elif field == "case_number":
-            values = [
-                raw_value_for(merged, "case_number"),
-                raw_value_for(merged, "lawsuit_id"),
-                entry.get("_source_file"),
-            ]
-            detail_path = entry.get("_detail_path")
-            if detail_path:
-                values.append(rel_json_path(repo, detail_path))
+            case_number_values = [raw_value_for(merged, "case_number")]
+            lawsuit_id_values = [raw_value_for(merged, "lawsuit_id")]
         else:
             values = []
 
         if field == "case_number":
-            matched = any(case_number_contains(value, query) for value in values)
+            matched = any(case_number_contains(value, query) for value in case_number_values) or any(
+                normalized_equals(value, query) for value in lawsuit_id_values
+            )
         else:
             matched = any(contains(value, query) for value in values)
         if matched:

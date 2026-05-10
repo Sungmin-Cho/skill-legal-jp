@@ -137,6 +137,25 @@ class SearchPrecedentTest(unittest.TestCase):
             results[0]["json_path"],
         )
 
+    def test_case_number_search_does_not_match_list_source_path(self):
+        results, _ = self._run_search("--case-number", "list", "--decade", "2020", "--limit", "5")
+
+        self.assertEqual([], results)
+
+    def test_case_number_search_does_not_match_decade_source_path(self):
+        results, _ = self._run_search("--case-number", "2020", "--decade", "2020", "--limit", "5")
+
+        self.assertEqual([], results)
+
+    def test_case_number_search_requires_exact_lawsuit_id(self):
+        rows = json.loads((self.precedent_dir / "list.json").read_text(encoding="utf-8"))
+        rows[0]["lawsuit_id"] = "92020"
+        self._write_json(self.precedent_dir / "list.json", rows)
+
+        results, _ = self._run_search("--case-number", "2020", "--decade", "2020", "--limit", "5")
+
+        self.assertEqual([], results)
+
     def test_duplicate_lawsuit_id_uses_matching_trial_type_details(self):
         results, _ = self._run_search("--case-number", "令和2(行ウ)999", "--limit", "5")
 
