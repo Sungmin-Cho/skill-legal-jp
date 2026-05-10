@@ -11,6 +11,19 @@ DEFAULT_REPO = os.environ.get(
     "LEGAL_JP_DATA_SET_PATH", str(Path(__file__).resolve().parents[4] / "data_set")
 )
 HEAVY_DETAIL_FIELDS = {"contents", "content", "本文", "full_text"}
+SEARCHABLE_DETAIL_FIELDS = HEAVY_DETAIL_FIELDS | {
+    "case_name",
+    "title",
+    "name",
+    "gist",
+    "case_gist",
+    "ref_law",
+    "court",
+    "court_name",
+    "result",
+    "original_court_name",
+    "original_case_number",
+}
 EXIT_DATA_ERROR = 2
 
 
@@ -195,6 +208,15 @@ def detail_content(entry):
     return ""
 
 
+def searchable_detail_text(entry):
+    values = []
+    for key in SEARCHABLE_DETAIL_FIELDS:
+        value = raw_value_for(entry, key)
+        if value is not None:
+            values.append(text_value(value))
+    return "\n".join(values)
+
+
 def make_snippet(content, keyword, radius=40):
     folded = search_key(content)
     needle = search_key(keyword)
@@ -296,7 +318,7 @@ def with_loaded_detail(entry):
     return entry
 
 
-def format_entry(repo, entry, content=False, snippet_keyword=None):
+def format_entry(repo, entry, content=False, snippet_keyword=None, snippet_source=None):
     merged = merged_entry(entry)
     detail_path = entry.get("_detail_path")
     result = {
@@ -314,7 +336,10 @@ def format_entry(repo, entry, content=False, snippet_keyword=None):
     if content:
         result["content"] = full_content
     if snippet_keyword is not None:
-        result["snippet"] = make_snippet(full_content, snippet_keyword)
+        result["snippet"] = make_snippet(
+            snippet_source if snippet_source is not None else full_content,
+            snippet_keyword,
+        )
     return result
 
 
@@ -442,11 +467,20 @@ def text_search(repo, query, court=None, decade=None, content=False, snippet=Fal
 
     for entry in iter_metadata_entries(repo, decade):
         merged = merged_entry(entry)
-        if not contains(detail_content(merged), query):
+        searchable = searchable_detail_text(merged)
+        if not contains(searchable, query):
             continue
         if not court_matches(entry, court):
             continue
-        results.append(format_entry(repo, entry, content=content, snippet_keyword=query if snippet else None))
+        results.append(
+            format_entry(
+                repo,
+                entry,
+                content=content,
+                snippet_keyword=query if snippet else None,
+                snippet_source=searchable,
+            )
+        )
         if len(results) >= limit:
             return results
     return results

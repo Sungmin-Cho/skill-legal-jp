@@ -259,7 +259,8 @@ def abbr_usage_entry(source_entry, source_file, match_label):
         "container_key": source_entry.get("container_key"),
         "abbs": source_entry.get("abbs"),
         "ryakusyou_lst": source_entry.get("ryakusyou_lst"),
-        "data": None,
+        "formal_abbr_lst": source_entry.get("formal_abbr_lst"),
+        "data": source_entry.get("data"),
         "article": source_entry.get("article"),
         "chapter": source_entry.get("chapter"),
         "raw": source_entry,
@@ -292,6 +293,25 @@ def matching_ryakusyou_targets(entry, query, by_name):
         catalog_entry = by_name.get(normalized(formal_name))
         source_entry = dict(entry)
         source_entry["ryakusyou_lst"] = [item]
+        yield rank, source_entry, catalog_entry
+
+
+def matching_formal_abbr_targets(entry, query, by_name):
+    article_index = entry.get("article_index") if isinstance(entry.get("article_index"), dict) else {}
+    law_name_value = article_index.get("law_name")
+    catalog_entry = by_name.get(normalized(law_name_value))
+    for item in entry.get("list") or []:
+        if not isinstance(item, dict):
+            continue
+        rank = match_rank(field_values(item, "abbr", "name"), query)
+        if not rank:
+            continue
+        source_entry = dict(entry)
+        source_entry["law_name"] = law_name_value
+        source_entry["formal_abbr_lst"] = [item]
+        source_entry["article"] = article_index.get("article_number")
+        source_entry["chapter"] = article_index.get("chapter_number")
+        source_entry["data"] = entry.get("text")
         yield rank, source_entry, catalog_entry
 
 
@@ -343,18 +363,28 @@ def search_abbreviations(repo, query, limit=20):
     partial_results = []
     seen = {abbreviation_result_key(result) for result in exact_results}
     by_num, by_name = law_catalog(repo)
-    source_files = ["law/egov_abb.json", "law/law_abb.json", "law/ryakusyou.json"]
+    source_files = [
+        "law/egov_abb.json",
+        "law/law_abb.json",
+        "law/formal_abbr_correct_answer_data.json",
+        "law/ryakusyou.json",
+    ]
     for source_file in source_files:
         for entry in iter_json_records(repo / source_file, required=True):
             if source_file == "law/ryakusyou.json":
                 matches = matching_ryakusyou_targets(entry, query, by_name)
+            elif source_file == "law/formal_abbr_correct_answer_data.json":
+                matches = matching_formal_abbr_targets(entry, query, by_name)
             else:
                 rank = match_rank(abbr_values(entry), query)
                 resolved = resolve_abbr_entry(entry, source_file, by_num, by_name, f"abbr:{rank}") if rank else None
                 matches = [(rank, entry, None)] if resolved is not None else []
 
             for rank, source_entry, catalog_entry in matches:
-                if source_file == "law/ryakusyou.json" and catalog_entry is None:
+                if source_file in (
+                    "law/formal_abbr_correct_answer_data.json",
+                    "law/ryakusyou.json",
+                ) and catalog_entry is None:
                     result = abbr_usage_entry(source_entry, source_file, f"abbr:{rank}")
                 elif catalog_entry is None:
                     result = resolve_abbr_entry(source_entry, source_file, by_num, by_name, f"abbr:{rank}")

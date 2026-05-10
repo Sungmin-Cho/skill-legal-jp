@@ -284,6 +284,27 @@ class SearchPrecedentTest(unittest.TestCase):
         self.assertGreaterEqual(len(results), 1)
         self.assertIn("Ｊｕｌｉｕｓ", results[0]["snippet"])
 
+    def test_text_search_includes_gist_without_full_content(self):
+        detail_path = self.precedent_dir / "令和2(受)123_最高裁判所第一小法廷_SupremeCourt_1.json"
+        detail = json.loads(detail_path.read_text(encoding="utf-8"))
+        detail.pop("contents", None)
+        detail["gist"] = "慰安婦に関する記事が捏造であると断定された事案。"
+        self._write_json(detail_path, detail)
+
+        results, _ = self._run_search(
+            "--text",
+            "慰安婦に関する記事が捏造",
+            "--decade",
+            "2020",
+            "--snippet",
+            "--limit",
+            "5",
+        )
+
+        self.assertGreaterEqual(len(results), 1)
+        self.assertIn("慰安婦に関する記事が捏造", results[0]["snippet"])
+        self.assertNotIn("content", results[0])
+
     def test_title_search_can_filter_by_court(self):
         results, _ = self._run_search("--title", "損害賠償", "--court", "最高裁", "--limit", "5")
 

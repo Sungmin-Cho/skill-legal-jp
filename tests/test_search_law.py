@@ -72,6 +72,7 @@ class SearchLawTest(unittest.TestCase):
                 ]
             },
         )
+        self._write_json(law_dir / "formal_abbr_correct_answer_data.json", [])
         self._write_json(
             law_dir / "ryakusyou.json",
             [
@@ -229,6 +230,39 @@ class SearchLawTest(unittest.TestCase):
 
         self.assertEqual("配偶者からの暴力の防止及び被害者の保護等に関する法律", results[0]["name"])
         self.assertIn("abbr:exact", results[0]["matches"])
+
+    def test_abbr_search_includes_formal_abbr_correct_answer_data(self):
+        laws = json.loads((self.repo / "law" / "list.json").read_text(encoding="utf-8"))
+        laws.append({"name": "液化石油ガス保安規則", "num": "昭和四十一年通商産業省令第五十二号"})
+        self._write_json(self.repo / "law" / "list.json", laws)
+        self._write_json(
+            self.repo / "law" / "formal_abbr_correct_answer_data.json",
+            [
+                {
+                    "article_index": {
+                        "law_name": "液化石油ガス保安規則",
+                        "article_number": {"base_number": 6},
+                    },
+                    "text": "防水措置を講じた室（以下「貯槽室」という。）",
+                    "list": [
+                        {
+                            "formal": "防水措置を講じた室",
+                            "abbr": "貯槽室",
+                        }
+                    ],
+                }
+            ],
+        )
+
+        results, _ = self._run_search("--abbr", "貯槽室", "--limit", "5")
+
+        self.assertEqual("液化石油ガス保安規則", results[0]["name"])
+        self.assertEqual("law/list.json", results[0]["source_file"])
+        self.assertEqual(
+            "law/formal_abbr_correct_answer_data.json",
+            results[0]["abbr_source_file"],
+        )
+        self.assertEqual("貯槽室", results[0]["abbr_raw"]["formal_abbr_lst"][0]["abbr"])
 
     def test_abbr_search_hydrates_source_hits_to_canonical_laws(self):
         law_dir = self.repo / "law"
