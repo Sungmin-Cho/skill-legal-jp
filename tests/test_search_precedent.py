@@ -110,6 +110,15 @@ class SearchPrecedentTest(unittest.TestCase):
         self.assertEqual("2020", results[0]["decade"])
         self.assertEqual({"era": "Reiwa", "year": 2, "month": 5, "day": 1}, results[0]["date"])
 
+    def test_title_search_normalizes_full_width_latin_text(self):
+        rows = json.loads((self.precedent_dir / "list.json").read_text(encoding="utf-8"))
+        rows[0]["case_name"] = "Ｊｕｌｉｕｓ商標事件"
+        self._write_json(self.precedent_dir / "list.json", rows)
+
+        results, _ = self._run_search("--title", "Julius", "--decade", "2020", "--limit", "1")
+
+        self.assertEqual("Ｊｕｌｉｕｓ商標事件", results[0]["title"])
+
     def test_empty_precedent_queries_exit_nonzero_with_empty_json(self):
         cases = [
             ("--title", ""),
@@ -263,6 +272,17 @@ class SearchPrecedentTest(unittest.TestCase):
 
         self.assertGreaterEqual(len(results), 1)
         self.assertIn("不法行為", results[0]["snippet"])
+
+    def test_text_search_normalizes_full_width_latin_text(self):
+        detail_path = self.precedent_dir / "令和2(受)123_最高裁判所第一小法廷_SupremeCourt_1.json"
+        detail = json.loads(detail_path.read_text(encoding="utf-8"))
+        detail["contents"] = "商標 Ｊｕｌｉｕｓ について判断した。"
+        self._write_json(detail_path, detail)
+
+        results, _ = self._run_search("--text", "Julius", "--decade", "2020", "--snippet", "--limit", "5")
+
+        self.assertGreaterEqual(len(results), 1)
+        self.assertIn("Ｊｕｌｉｕｓ", results[0]["snippet"])
 
     def test_title_search_can_filter_by_court(self):
         results, _ = self._run_search("--title", "損害賠償", "--court", "最高裁", "--limit", "5")

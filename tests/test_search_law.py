@@ -216,6 +216,20 @@ class SearchLawTest(unittest.TestCase):
         self.assertEqual("law/list.json", results[0]["source_file"])
         self.assertTrue(all(result["name"] for result in results))
 
+    def test_abbr_search_normalizes_full_width_latin_acronyms(self):
+        laws = json.loads((self.repo / "law" / "list.json").read_text(encoding="utf-8"))
+        laws.append({"name": "配偶者からの暴力の防止及び被害者の保護等に関する法律", "num": "平成十三年法律第三十一号"})
+        self._write_json(self.repo / "law" / "list.json", laws)
+        self._write_json(
+            self.repo / "law" / "egov_abb.json",
+            [{"num": "平成十三年法律第三十一号", "abbs": ["ＤＶ防止法"]}],
+        )
+
+        results, _ = self._run_search("--abbr", "DV防止法", "--limit", "3")
+
+        self.assertEqual("配偶者からの暴力の防止及び被害者の保護等に関する法律", results[0]["name"])
+        self.assertIn("abbr:exact", results[0]["matches"])
+
     def test_abbr_search_hydrates_source_hits_to_canonical_laws(self):
         law_dir = self.repo / "law"
         laws = json.loads((law_dir / "list.json").read_text(encoding="utf-8"))

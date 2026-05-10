@@ -40,8 +40,12 @@ def text_value(value):
     return json.dumps(value, ensure_ascii=False, sort_keys=True)
 
 
+def search_key(value):
+    return unicodedata.normalize("NFKC", text_value(value)).casefold()
+
+
 def contains(value, query):
-    return str(query).casefold() in text_value(value).casefold()
+    return search_key(query) in search_key(value)
 
 
 def normalize_case_number(value):
@@ -192,8 +196,8 @@ def detail_content(entry):
 
 
 def make_snippet(content, keyword, radius=40):
-    folded = content.casefold()
-    needle = str(keyword).casefold()
+    folded = search_key(content)
+    needle = search_key(keyword)
     pos = folded.find(needle)
     if pos < 0:
         return ""

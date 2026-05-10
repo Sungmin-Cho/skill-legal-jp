@@ -3,6 +3,7 @@ import argparse
 import json
 import os
 import sys
+import unicodedata
 from pathlib import Path
 
 
@@ -144,7 +145,7 @@ def append_limited(results, result, limit):
 
 
 def normalized(value):
-    return "".join(str(value or "").casefold().split())
+    return "".join(unicodedata.normalize("NFKC", str(value or "")).casefold().split())
 
 
 def require_nonempty_query(value, label):
@@ -154,8 +155,8 @@ def require_nonempty_query(value, label):
 
 
 def json_contains(entry, query):
-    haystack = json.dumps(entry, ensure_ascii=False, sort_keys=True).casefold()
-    return str(query).casefold() in haystack
+    haystack = json.dumps(entry, ensure_ascii=False, sort_keys=True)
+    return normalized(query) in normalized(haystack)
 
 
 def field_values(entry, *keys):
