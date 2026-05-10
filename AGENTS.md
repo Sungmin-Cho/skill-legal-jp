@@ -6,12 +6,17 @@ For Japanese law, precedent, legal research, or fact-specific legal questions:
 
 1. Ensure `data_set/` exists. Clone `https://github.com/japanese-law-analysis/data_set.git` if missing.
 2. Try `git -C data_set pull --ff-only`; if it fails, mention that the existing snapshot is being used.
-3. Search local evidence with:
+3. Record dataset provenance before answering:
+   - `git -C data_set rev-parse --short HEAD`
+   - `git -C data_set log -1 --format=%cs`
+   - If either command fails, explicitly state that dataset commit/date provenance could not be determined.
+4. Search local evidence with:
    - `python3 .claude/skills/legal-jp/scripts/search_law.py`
    - `python3 .claude/skills/legal-jp/scripts/search_precedent.py`
-4. Cite evidence using local paths and metadata returned by the scripts.
-5. Separate confirmed source data from legal analysis or practical suggestions.
-6. Include the disclaimer that this is AI-assisted legal information, not a substitute for licensed Japanese legal advice.
+5. Cite evidence using local paths and metadata returned by the scripts.
+6. Separate confirmed source data from legal analysis or practical suggestions.
+7. Include the dataset commit/date provenance in every substantive legal answer or saved report.
+8. Include the disclaimer that this is AI-assisted legal information, not a substitute for licensed Japanese legal advice.
 
 ## Output Files
 
