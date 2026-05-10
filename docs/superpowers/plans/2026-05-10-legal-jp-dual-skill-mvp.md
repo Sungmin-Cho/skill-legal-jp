@@ -54,7 +54,7 @@ outputs/
 
 Write a concise project README with these sections:
 
-```markdown
+````markdown
 # legal-jp
 
 Japanese law and precedent research skill for Claude Code and Codex.
@@ -109,7 +109,7 @@ python3 .claude/skills/legal-jp/scripts/search_precedent.py --text 損害賠償 
 ## Disclaimer
 
 This project provides AI-assisted legal information from a local dataset snapshot. It is not a substitute for advice from a licensed Japanese legal professional.
-```
+````
 
 - [ ] **Step 3: Create `CLAUDE.md`**
 
@@ -135,7 +135,7 @@ Use `.claude/skills/legal-jp/SKILL.md` for Japanese legal information, law looku
 
 Write:
 
-```markdown
+````markdown
 # AGENTS.md — legal-jp
 
 ## Required Workflow
@@ -160,7 +160,7 @@ outputs/{topic}_{work_type}_YYYYMMDD.md
 ```
 
 Use `.docx`, `.xlsx`, `.pptx`, or `.pdf` only when explicitly requested.
-```
+````
 
 - [ ] **Step 5: Commit support files**
 
@@ -220,9 +220,11 @@ class SearchLawTests(unittest.TestCase):
         (law / "egov_abb.json").write_text(json.dumps([
             {"law_name": "民法", "abbreviation": "民法"}
         ], ensure_ascii=False), encoding="utf-8")
-        (law / "law_abb.json").write_text(json.dumps([
-            {"formal": "民法", "abbr": "民法"}
-        ], ensure_ascii=False), encoding="utf-8")
+        (law / "law_abb.json").write_text(json.dumps({
+            "明治二十九年法律第八十九号": [
+                {"num": "明治二十九年法律第八十九号", "name": "民法", "note": None}
+            ]
+        }, ensure_ascii=False), encoding="utf-8")
         (law / "ryakusyou.json").write_text(json.dumps([
             {"law_name": "会社法", "abbr": "会社法", "text": "会社法（以下「法」という。）"}
         ], ensure_ascii=False), encoding="utf-8")
@@ -256,6 +258,7 @@ class SearchLawTests(unittest.TestCase):
     def test_abbreviation_search_returns_match_source(self):
         data = self.run_script("--abbr", "民法", "--limit", "5")
         self.assertTrue(any(item["source_file"] == "law/egov_abb.json" for item in data))
+        self.assertTrue(any(item.get("container_key") == "明治二十九年法律第八十九号" for item in data))
 
     def test_yomikae_search_returns_text_match(self):
         data = self.run_script("--yomikae", "清算人", "--limit", "5")
@@ -308,6 +311,82 @@ def load_json(path: Path) -> Any:
         return json.load(f)
 
 
+def stream_json_array(path: Path):
+    """Yield objects from a top-level JSON array without materializing the file."""
+    decoder = json.JSONDecoder()
+    with path.open(encoding="utf-8") as f:
+        buffer = ""
+        eof = False
+        started = False
+        while True:
+            if not eof and len(buffer) < 65536:
+                chunk = f.read(65536)
+                if chunk:
+                    buffer += chunk
+                else:
+                    eof = True
+            buffer = buffer.lstrip()
+            if not started:
+                if not buffer:
+                    if eof:
+                        return
+                    continue
+                if buffer[0] != "[":
+                    raise ValueError(f"Expected top-level JSON array: {path}")
+                buffer = buffer[1:]
+                started = True
+                continue
+            buffer = buffer.lstrip()
+            if buffer.startswith("]"):
+                return
+            if buffer.startswith(","):
+                buffer = buffer[1:]
+                continue
+            try:
+                item, idx = decoder.raw_decode(buffer)
+            except json.JSONDecodeError:
+                if eof:
+                    raise
+                chunk = f.read(65536)
+                if chunk:
+                    buffer += chunk
+                    continue
+                eof = True
+                continue
+            yield item
+            buffer = buffer[idx:]
+
+
+def with_container_key(value: Any, container_key: str | None) -> dict[str, Any]:
+    if isinstance(value, dict):
+        item = dict(value)
+    else:
+        item = {"value": value}
+    if container_key is not None:
+        item["container_key"] = container_key
+    return item
+
+
+def iter_json_records(path: Path):
+    if not path.exists():
+        return
+    if path.name == "ryakusyou.json":
+        for item in stream_json_array(path):
+            yield with_container_key(item, None)
+        return
+    data = load_json(path)
+    if isinstance(data, list):
+        for item in data:
+            yield with_container_key(item, None)
+    elif isinstance(data, dict):
+        for key, value in data.items():
+            if isinstance(value, list):
+                for child in value:
+                    yield with_container_key(child, str(key))
+            else:
+                yield with_container_key(value, str(key))
+
+
 def as_text(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True)
 
@@ -323,13 +402,14 @@ def normalize_name(name: str) -> str:
 def law_entry(entry: dict[str, Any], source_file: str, status: str, matches: list[str] | None = None) -> dict[str, Any]:
     return {
         "name": entry.get("name") or entry.get("law_name") or entry.get("formal") or entry.get("title"),
-        "num": entry.get("num"),
+        "num": entry.get("num") or entry.get("container_key"),
         "id": entry.get("id"),
         "date": entry.get("date"),
         "source_file": source_file,
         "status": status,
         "patch": entry.get("patch"),
         "matches": matches or [],
+        "container_key": entry.get("container_key"),
         "raw": entry,
     }
 
@@ -359,11 +439,11 @@ def search_law_names(repo: Path, keyword: str, exact: bool, include_repealed: bo
 def search_json_files(repo: Path, rel_files: list[str], keyword: str, limit: int) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
     for rel in rel_files:
-        data = load_json(repo / rel)
-        items = data if isinstance(data, list) else list(data.values()) if isinstance(data, dict) else []
-        for item in items:
+        if len(results) >= limit:
+            return results
+        for item in iter_json_records(repo / rel):
             if contains(item, keyword):
-                results.append(law_entry(item if isinstance(item, dict) else {"value": item}, rel, "reference", ["text"]))
+                results.append(law_entry(item, rel, "reference", ["text"]))
                 if len(results) >= limit:
                     return results
     return results
@@ -459,17 +539,18 @@ class SearchPrecedentTests(unittest.TestCase):
         d2020.mkdir(parents=True)
         item = {
             "case_number": "令和2(受)123",
-            "court": "最高裁判所第一小法廷",
-            "title": "損害賠償請求事件",
+            "court_name": "最高裁判所第一小法廷",
             "date": "2020-05-01",
-            "file": "令和2(受)123_最高裁判所第一小法廷_SupremeCourt_1.json",
+            "trial_type": "SupremeCourt",
+            "lawsuit_id": "1",
         }
         (d2020 / "list.json").write_text(json.dumps([item], ensure_ascii=False), encoding="utf-8")
-        (d2020 / item["file"]).write_text(json.dumps({
-            "title": "損害賠償請求事件",
+        (d2020 / "令和2(受)123_最高裁判所第一小法廷_SupremeCourt_1.json").write_text(json.dumps({
+            "case_name": "損害賠償請求事件",
             "case_number": "令和2(受)123",
-            "court": "最高裁判所第一小法廷",
-            "text": "不法行為に基づく損害賠償について判断した。",
+            "court_name": "最高裁判所第一小法廷",
+            "contents": "不法行為に基づく損害賠償について判断した。",
+            "lawsuit_id": "1",
         }, ensure_ascii=False), encoding="utf-8")
 
     def tearDown(self):
@@ -500,6 +581,10 @@ class SearchPrecedentTests(unittest.TestCase):
     def test_court_filter_limits_results(self):
         data = self.run_script("--title", "損害賠償", "--court", "最高裁", "--limit", "5")
         self.assertEqual(len(data), 1)
+
+    def test_title_search_does_not_match_court_only(self):
+        data = self.run_script("--title", "最高裁", "--limit", "5")
+        self.assertEqual(data, [])
 
 
 if __name__ == "__main__":
@@ -569,6 +654,35 @@ def make_snippet(text: str, keyword: str, context: int = 120) -> str:
     return ("..." if start else "") + text[start:end] + ("..." if end < len(text) else "")
 
 
+def discover_json_path(ddir: Path, entry: dict[str, Any]) -> Path | None:
+    explicit = value_for(entry, ["file", "filename", "path"])
+    if explicit:
+        path = ddir / explicit
+        return path if path.exists() else None
+    lawsuit_id = value_for(entry, ["lawsuit_id", "id"])
+    if not lawsuit_id:
+        return None
+    matches = sorted(ddir.glob(f"*_{lawsuit_id}.json"))
+    if not matches:
+        matches = sorted(ddir.glob(f"*{lawsuit_id}.json"))
+    return matches[0] if matches else None
+
+
+def load_detail(repo: Path, entry: dict[str, Any]) -> dict[str, Any]:
+    json_path = entry.get("json_path")
+    if not json_path:
+        return {}
+    detail = load_json(repo / json_path)
+    return detail if isinstance(detail, dict) else {}
+
+
+def merged_entry(repo: Path, entry: dict[str, Any]) -> dict[str, Any]:
+    detail = load_detail(repo, entry)
+    merged = dict(detail)
+    merged.update(entry)
+    return merged
+
+
 def decade_dirs(repo: Path, decade: str | None) -> list[Path]:
     root = repo / "precedent"
     if decade:
@@ -590,45 +704,51 @@ def metadata_entries(repo: Path, decade: str | None) -> list[dict[str, Any]]:
             normalized = dict(item)
             normalized["decade"] = ddir.name
             normalized["source_file"] = str((ddir / "list.json").relative_to(repo))
-            file_name = value_for(normalized, ["file", "filename", "path"])
-            if file_name:
-                normalized["json_path"] = str((ddir / file_name).relative_to(repo))
+            json_path = discover_json_path(ddir, normalized)
+            if json_path:
+                normalized["json_path"] = str(json_path.relative_to(repo))
             results.append(normalized)
     return results
 
 
 def format_entry(repo: Path, entry: dict[str, Any], content: bool = False, snippet_keyword: str | None = None) -> dict[str, Any]:
-    title = value_for(entry, ["title", "case_name", "事件名", "name"])
-    case_number = value_for(entry, ["case_number", "caseNo", "事件番号", "number"])
-    court = value_for(entry, ["court", "court_name", "裁判所", "courtName"])
+    merged = merged_entry(repo, entry)
+    title = value_for(merged, ["title", "case_name", "事件名", "name"])
+    case_number = value_for(merged, ["case_number", "caseNo", "事件番号", "number"])
+    court = value_for(merged, ["court", "court_name", "裁判所", "courtName"])
     item = {
         "title": title,
         "case_number": case_number,
         "court": court,
-        "date": value_for(entry, ["date", "judgement_date", "裁判年月日"]),
+        "date": value_for(merged, ["date", "judgement_date", "裁判年月日"]),
         "decade": entry.get("decade"),
         "source_file": entry.get("source_file"),
         "json_path": entry.get("json_path"),
         "raw": entry,
     }
-    json_path = entry.get("json_path")
-    detail = load_json(repo / json_path) if json_path else None
-    if content and detail is not None:
+    detail = load_detail(repo, entry)
+    if content and detail:
         item["content"] = detail
-    if snippet_keyword and detail is not None:
+    if snippet_keyword and detail:
         snippet = make_snippet(as_text(detail), snippet_keyword)
         if snippet:
             item["snippet"] = snippet
     return item
 
 
+def field_haystack(repo: Path, entry: dict[str, Any], fields: list[str]) -> str:
+    merged = merged_entry(repo, entry)
+    return " ".join(value_for(merged, [field]) for field in fields)
+
+
 def metadata_search(repo: Path, args: argparse.Namespace, keyword: str, fields: list[str]) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
     for entry in metadata_entries(repo, args.decade):
-        if args.court and args.court.lower() not in value_for(entry, ["court", "court_name", "裁判所", "courtName"]).lower():
+        merged = merged_entry(repo, entry)
+        if args.court and args.court.lower() not in value_for(merged, ["court", "court_name", "裁判所", "courtName"]).lower():
             continue
-        haystack = " ".join(value_for(entry, [field]) for field in fields)
-        if keyword.lower() in haystack.lower() or keyword.lower() in as_text(entry).lower():
+        haystack = field_haystack(repo, entry, fields)
+        if keyword.lower() in haystack.lower():
             results.append(format_entry(repo, entry, content=args.content, snippet_keyword=keyword if args.snippet else None))
             if len(results) >= args.limit:
                 break
@@ -709,7 +829,7 @@ Run:
 python3 -m unittest tests/test_search_precedent.py -v
 ```
 
-Expected: 4 tests pass.
+Expected: 5 tests pass.
 
 - [ ] **Step 5: Commit precedent script**
 
@@ -734,7 +854,7 @@ Expected: commit succeeds.
 
 Write:
 
-```markdown
+````markdown
 ---
 name: legal-jp
 description: "Japanese legal information and precedent research skill for Japan law questions. Use for Japanese law lookup, precedent lookup, legal research, statute metadata, abbreviations, e-Gov law data, 裁判例, 判例, 法令, 法律相談, 日本法, 일본 법률, 일본 판례, 일본 법령, 법률 상담, 법령 검색, 판례 검색, 계약, 소송, 손해배상, 노동, 상속, 형사, 민사, 행정, 조문, 판결, legal, law, precedent. Activates when the user asks about Japanese legal issues or asks to search/analyze Japanese laws or cases using local data."
@@ -851,13 +971,13 @@ Save a file only when the user asks for a report or saved output. Default path:
 ```text
 outputs/{topic}_{work_type}_YYYYMMDD.md
 ```
-```
+````
 
 - [ ] **Step 2: Align `AGENTS.md` with script names**
 
 Append this exact section if it is not already present:
 
-```markdown
+````markdown
 ## Script Reference
 
 Law:
@@ -873,7 +993,7 @@ Precedent:
 python3 .claude/skills/legal-jp/scripts/search_precedent.py --title 損害賠償 --limit 3
 python3 .claude/skills/legal-jp/scripts/search_precedent.py --text 損害賠償 --decade 2020 --snippet --limit 3
 ```
-```
+````
 
 - [ ] **Step 3: Validate skill frontmatter manually**
 
@@ -946,7 +1066,7 @@ python3 .claude/skills/legal-jp/scripts/search_law.py --name 民法 --limit 3
 python3 .claude/skills/legal-jp/scripts/search_law.py --abbr 民法 --limit 3
 ```
 
-Expected: JSON arrays with at least one result or a clear empty result if the upstream data lacks that term. No traceback.
+Expected: both commands return valid JSON and at least one of them returns a non-empty array.
 
 - [ ] **Step 4: Run precedent smoke commands**
 
@@ -957,11 +1077,11 @@ python3 .claude/skills/legal-jp/scripts/search_precedent.py --title 損害賠償
 python3 .claude/skills/legal-jp/scripts/search_precedent.py --text 損害賠償 --decade 2020 --snippet --limit 3
 ```
 
-Expected: JSON arrays with precedent matches or clear empty results. No traceback.
+Expected: both commands return valid JSON and at least one of them returns a non-empty array.
 
-- [ ] **Step 5: Inspect one returned result path**
+- [ ] **Step 5: Run real-data integration assertions**
 
-If a command returns `json_path`, run:
+Run:
 
 ```bash
 python3 - <<'PY'
@@ -969,23 +1089,56 @@ import json
 import subprocess
 from pathlib import Path
 
-proc = subprocess.run([
+def run(args):
+    proc = subprocess.run(args, check=True, capture_output=True, text=True)
+    return json.loads(proc.stdout)
+
+law = run(["python3", ".claude/skills/legal-jp/scripts/search_law.py", "--name", "民法", "--limit", "3"])
+if not law:
+    first_law = json.loads(Path("data_set/law/list.json").read_text(encoding="utf-8"))[0]["name"]
+    law = run(["python3", ".claude/skills/legal-jp/scripts/search_law.py", "--exact", first_law, "--limit", "1"])
+assert law, "law search returned no real-data result"
+assert law[0].get("source_file"), law[0]
+assert law[0].get("name"), law[0]
+
+precedent = run([
     "python3", ".claude/skills/legal-jp/scripts/search_precedent.py",
     "--text", "損害賠償", "--decade", "2020", "--snippet", "--limit", "1"
-], check=True, capture_output=True, text=True)
-data = json.loads(proc.stdout)
-if data and data[0].get("json_path"):
-    p = Path("data_set") / data[0]["json_path"]
-    assert p.exists(), p
-    print(p)
-else:
-    print("No returned json_path to inspect")
+])
+if not precedent:
+    first_meta = json.loads(Path("data_set/precedent/2020/list.json").read_text(encoding="utf-8"))[0]
+    precedent = run([
+        "python3", ".claude/skills/legal-jp/scripts/search_precedent.py",
+        "--case-number", first_meta["case_number"], "--decade", "2020", "--limit", "1"
+    ])
+assert precedent, "precedent search returned no real-data result"
+assert precedent[0].get("source_file") or precedent[0].get("json_path"), precedent[0]
+if precedent[0].get("json_path"):
+    assert (Path("data_set") / precedent[0]["json_path"]).exists(), precedent[0]["json_path"]
+
+print("real-data integration assertions ok")
 PY
 ```
 
-Expected: printed path exists or command explicitly reports no returned path.
+Expected: `real-data integration assertions ok`
 
-- [ ] **Step 6: Final commit for validation fixes**
+- [ ] **Step 6: Run a workflow smoke prompt**
+
+Run this manual smoke check using the written `SKILL.md` and `AGENTS.md` workflow:
+
+```text
+Prompt: 일본 민법에 대해 확인 가능한 법령 데이터와 관련 손해배상 판례를 로컬 data_set 기준으로 요약해줘.
+```
+
+Expected answer properties:
+
+- Uses `search_law.py` and `search_precedent.py` results from local `data_set/`.
+- Cites at least one local law source such as `law/list.json` or `law/law_abb.json`.
+- Cites at least one local precedent `source_file` or `json_path`.
+- Separates confirmed source data from analysis.
+- Includes the Japanese legal-advice disclaimer from `SKILL.md`.
+
+- [ ] **Step 7: Final commit for validation fixes**
 
 If validation required fixes, commit them:
 
@@ -996,7 +1149,7 @@ git commit -m "fix: stabilize legal-jp search validation"
 
 Expected: commit succeeds only if there are changes. If no changes, skip.
 
-- [ ] **Step 7: Final status**
+- [ ] **Step 8: Final status**
 
 Run:
 
