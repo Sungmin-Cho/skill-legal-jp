@@ -60,42 +60,45 @@ git -C data_set log -1 --format=%cs
 
 ## 사용 예시
 
-### 법령 검색
+Claude Code 또는 Codex에서 이 저장소를 연 상태로, 평소처럼 자연어로 질문하면 됩니다. 스킬은 내부적으로 로컬 데이터셋을 갱신·검색하고, 확인한 근거와 dataset provenance를 답변에 포함합니다.
 
-```bash
-python3 .claude/skills/legal-jp/scripts/search_law.py --name "民法" --limit 5
-python3 .claude/skills/legal-jp/scripts/search_law.py --exact "民法" --include-repealed --limit 5
-python3 .claude/skills/legal-jp/scripts/search_law.py --abbr "民法" --limit 5
-python3 .claude/skills/legal-jp/scripts/search_law.py --yomikae "会社法" --limit 5
+### 개인 법률 상담
+
+```text
+일본에서 임대차 계약이 끝났는데 임대인이 보증금을 돌려주지 않습니다.
+퇴거 시 원상회복 비용으로 큰 금액도 청구했습니다.
+어떤 법령과 판례를 확인해야 하는지, 실무상 대응 순서도 알려주세요.
 ```
 
-주요 옵션:
+→ 관련될 수 있는 법령·판례 데이터를 검색하고, 확인된 근거, 분석, 추가로 확인해야 할 사실, 면책을 분리해 답변합니다.
 
-- `--name`: 법령명 부분 일치 검색
-- `--exact`: 정확한 법령명 검색
-- `--abbr`: 법령 약칭 데이터 검색
-- `--yomikae`: 읽기 대체 데이터 검색
-- `--include-repealed`: 폐지 법령 포함
-- `--limit`: 표시 건수 제한
+### 법령 리서치
 
-### 판례 검색
-
-```bash
-python3 .claude/skills/legal-jp/scripts/search_precedent.py --title "損害賠償" --decade 2020 --limit 5
-python3 .claude/skills/legal-jp/scripts/search_precedent.py --case-number "令和2" --limit 5
-python3 .claude/skills/legal-jp/scripts/search_precedent.py --text "損害賠償" --decade 2020 --snippet --limit 5
+```text
+회사법상 이사의 경업금지 의무에 대해
+관련 법령 데이터와 읽기 대체 정보를 확인해서 핵심을 정리해줘.
+근거 파일과 데이터셋 commit/date provenance도 포함해줘.
 ```
 
-주요 옵션:
+→ 법령명, 법령번호, 상태, 약칭, 읽기 대체 정보 등을 로컬 데이터에 근거해 정리합니다.
 
-- `--title`: 판례 제목 검색
-- `--case-number`: 사건번호 검색
-- `--text`: 판례 JSON 본문 검색
-- `--court`: 법원명 필터
-- `--decade`: 연대 필터
-- `--content`: 판시사항, 판결요지 등 포함
-- `--snippet`: 키워드 주변 텍스트만 표시
-- `--limit`: 표시 건수 제한
+### 판례 리서치
+
+```text
+2020년대 손해배상 관련 일본 판례를 찾아서
+사건번호, 법원, 판결일, 요지를 확인 가능한 범위에서 표로 정리해줘.
+```
+
+→ 판례 제목, 사건번호, 법원, 날짜, JSON 경로 등 메타데이터를 확인하고 필요하면 본문 스니펫도 사용해 정리합니다.
+
+### 저장 리포트
+
+```text
+민법상 불법행위 책임에 대해 확인 가능한 법령 데이터와 판례를 사용해서
+일본어 조사 메모를 작성하고 Markdown 파일로 저장해줘.
+```
+
+→ `outputs/{topic}_{work_type}_YYYYMMDD.md`에 저장하고 저장 위치 링크를 반환합니다.
 
 ## 프로젝트 구조
 

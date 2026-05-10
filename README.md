@@ -60,42 +60,45 @@ git -C data_set log -1 --format=%cs
 
 ## 使用例
 
-### 法令検索
+Claude Code または Codex でこのリポジトリを開いた状態で、普段どおり自然文で質問します。スキルは内部でローカルデータセットを更新・検索し、確認した根拠と dataset provenance を回答に含めます。
 
-```bash
-python3 .claude/skills/legal-jp/scripts/search_law.py --name "民法" --limit 5
-python3 .claude/skills/legal-jp/scripts/search_law.py --exact "民法" --include-repealed --limit 5
-python3 .claude/skills/legal-jp/scripts/search_law.py --abbr "民法" --limit 5
-python3 .claude/skills/legal-jp/scripts/search_law.py --yomikae "会社法" --limit 5
+### 個別相談
+
+```text
+日本で賃貸借契約が終了したのに、貸主が敷金を返してくれません。
+退去時の原状回復費用として高額な請求もされています。
+どの法律と裁判例を確認すべきか、実務上の対応順序も教えてください。
 ```
 
-主なオプション:
+→ 関係し得る法令・裁判例データを検索し、確認済みの根拠、分析、追加で確認すべき事実、免責を分けて回答します。
 
-- `--name`: 法令名の部分一致検索
-- `--exact`: 正確な法令名で検索
-- `--abbr`: 法令略称データを検索
-- `--yomikae`: 読み替えデータを検索
-- `--include-repealed`: 廃止法令も含める
-- `--limit`: 表示件数を制限
+### 法令リサーチ
 
-### 裁判例検索
-
-```bash
-python3 .claude/skills/legal-jp/scripts/search_precedent.py --title "損害賠償" --decade 2020 --limit 5
-python3 .claude/skills/legal-jp/scripts/search_precedent.py --case-number "令和2" --limit 5
-python3 .claude/skills/legal-jp/scripts/search_precedent.py --text "損害賠償" --decade 2020 --snippet --limit 5
+```text
+会社法における取締役の競業避止義務について、
+関連する法令データと読み替え情報を確認して要点を整理してください。
+根拠ファイルとデータセットの commit/date provenance も付けてください。
 ```
 
-主なオプション:
+→ 法令名、法令番号、状態、略称、読み替え情報などをローカルデータに基づいて整理します。
 
-- `--title`: 裁判例タイトル検索
-- `--case-number`: 事件番号検索
-- `--text`: 裁判例 JSON 本文検索
-- `--court`: 裁判所名フィルタ
-- `--decade`: 年代フィルタ
-- `--content`: 判示事項・裁判要旨などを含める
-- `--snippet`: キーワード周辺だけを表示
-- `--limit`: 表示件数を制限
+### 裁判例リサーチ
+
+```text
+2020年代の損害賠償に関する裁判例を探して、
+事件番号、裁判所、判決日、要旨が分かる範囲で表にしてください。
+```
+
+→ 裁判例タイトル、事件番号、裁判所、日付、JSON パスなどのメタデータを確認し、必要に応じて本文スニペットも使って整理します。
+
+### 保存レポート
+
+```text
+民法上の不法行為責任について、確認できる法令データと裁判例を使って
+日本語の調査メモを作成し、Markdown ファイルとして保存してください。
+```
+
+→ `outputs/{topic}_{work_type}_YYYYMMDD.md` に保存し、保存先リンクを返します。
 
 ## プロジェクト構成
 
