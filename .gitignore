@@ -5,6 +5,7 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 
+.deep-review/
 data_set/
 docs/
 outputs/
