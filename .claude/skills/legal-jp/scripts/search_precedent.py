@@ -10,14 +10,25 @@ DEFAULT_REPO = os.environ.get(
     "LEGAL_JP_DATA_SET_PATH", str(Path(__file__).resolve().parents[4] / "data_set")
 )
 HEAVY_DETAIL_FIELDS = {"contents", "content", "本文", "full_text"}
+EXIT_DATA_ERROR = 2
 
 
-def load_json(path):
+class DataFileError(Exception):
+    pass
+
+
+def load_json(path, required=False):
     try:
         with path.open("r", encoding="utf-8") as handle:
             return json.load(handle)
-    except (FileNotFoundError, json.JSONDecodeError, PermissionError):
+    except FileNotFoundError as exc:
+        if required:
+            raise DataFileError(f"error: JSON file not found: {path}") from exc
         return None
+    except json.JSONDecodeError as exc:
+        raise DataFileError(f"error: invalid JSON in {path}: {exc}") from exc
+    except PermissionError as exc:
+        raise DataFileError(f"error: unreadable JSON file: {path}: {exc}") from exc
 
 
 def text_value(value):
@@ -57,7 +68,7 @@ def build_lawsuit_index(ddir):
 
 
 def detail_matches_entry(path, entry):
-    detail = load_json(path)
+    detail = load_json(path, required=True)
     if not isinstance(detail, dict):
         return False
 
@@ -163,7 +174,7 @@ def merged_entry(entry):
 
 
 def entry_from_detail(repo, ddir, path, decade):
-    detail = load_json(path)
+    detail = load_json(path, required=True)
     if not isinstance(detail, dict):
         return None
     return {
@@ -187,7 +198,7 @@ def iter_metadata_entries(repo, decade=None):
     for ddir in decade_dirs(repo, decade):
         lawsuit_index = build_lawsuit_index(ddir)
         seen_paths = set()
-        rows = load_json(ddir / "list.json")
+        rows = load_json(ddir / "list.json", required=True)
         if isinstance(rows, dict):
             rows = rows.get("items") or rows.get("data") or rows.get("results") or []
         if isinstance(rows, list):
@@ -195,7 +206,7 @@ def iter_metadata_entries(repo, decade=None):
                 if not isinstance(row, dict):
                     continue
                 detail_path = discover_json_path(ddir, row, lawsuit_index)
-                detail = load_json(detail_path) if detail_path else None
+                detail = load_json(detail_path, required=True) if detail_path else None
                 if detail_path:
                     seen_paths.add(detail_path.resolve())
                 yield {
@@ -321,43 +332,49 @@ def main(argv=None):
     if not (repo / "precedent").is_dir():
         print(f"error: precedent directory not found: {repo / 'precedent'}", file=sys.stderr)
         print("[]")
-        return
+        return EXIT_DATA_ERROR
 
-    if args.title is not None:
-        results = metadata_search(
-            repo,
-            "title",
-            args.title,
-            court=args.court,
-            decade=args.decade,
-            content=args.content,
-            snippet=args.snippet,
-            limit=args.limit,
-        )
-    elif args.case_number is not None:
-        results = metadata_search(
-            repo,
-            "case_number",
-            args.case_number,
-            court=args.court,
-            decade=args.decade,
-            content=args.content,
-            snippet=args.snippet,
-            limit=args.limit,
-        )
-    else:
-        results = text_search(
-            repo,
-            args.text,
-            court=args.court,
-            decade=args.decade,
-            content=args.content,
-            snippet=args.snippet,
-            limit=args.limit,
-        )
+    try:
+        if args.title is not None:
+            results = metadata_search(
+                repo,
+                "title",
+                args.title,
+                court=args.court,
+                decade=args.decade,
+                content=args.content,
+                snippet=args.snippet,
+                limit=args.limit,
+            )
+        elif args.case_number is not None:
+            results = metadata_search(
+                repo,
+                "case_number",
+                args.case_number,
+                court=args.court,
+                decade=args.decade,
+                content=args.content,
+                snippet=args.snippet,
+                limit=args.limit,
+            )
+        else:
+            results = text_search(
+                repo,
+                args.text,
+                court=args.court,
+                decade=args.decade,
+                content=args.content,
+                snippet=args.snippet,
+                limit=args.limit,
+            )
+    except DataFileError as exc:
+        print(str(exc), file=sys.stderr)
+        print("[]")
+        return EXIT_DATA_ERROR
 
     print(json.dumps(results, ensure_ascii=False, indent=2))
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

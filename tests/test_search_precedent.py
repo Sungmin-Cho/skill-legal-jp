@@ -86,6 +86,16 @@ class SearchPrecedentTest(unittest.TestCase):
         )
         return json.loads(proc.stdout), proc.stdout
 
+    def _run_search_failure(self, *args):
+        return subprocess.run(
+            [sys.executable, str(SCRIPT), "--repo", str(self.repo), *args],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+        )
+
     def _load_module(self):
         spec = importlib.util.spec_from_file_location("search_precedent", SCRIPT)
         module = importlib.util.module_from_spec(spec)
@@ -178,6 +188,36 @@ class SearchPrecedentTest(unittest.TestCase):
         results, _ = self._run_search("--title", "最高裁", "--limit", "5")
 
         self.assertEqual([], results)
+
+    def test_missing_precedent_directory_exits_nonzero_with_empty_json(self):
+        self.repo = Path(self.tmp.name) / "missing_data_set"
+
+        proc = self._run_search_failure("--title", "損害賠償")
+
+        self.assertEqual(2, proc.returncode)
+        self.assertEqual([], json.loads(proc.stdout))
+        self.assertIn("precedent directory not found", proc.stderr)
+
+    def test_malformed_list_json_exits_nonzero_with_empty_json(self):
+        (self.precedent_dir / "list.json").write_text("[", encoding="utf-8")
+
+        proc = self._run_search_failure("--title", "損害賠償", "--decade", "2020")
+
+        self.assertEqual(2, proc.returncode)
+        self.assertEqual([], json.loads(proc.stdout))
+        self.assertIn("invalid JSON", proc.stderr)
+        self.assertIn("list.json", proc.stderr)
+
+    def test_malformed_selected_detail_json_exits_nonzero_with_empty_json(self):
+        detail_path = self.precedent_dir / "令和2(受)123_最高裁判所第一小法廷_SupremeCourt_1.json"
+        detail_path.write_text("{", encoding="utf-8")
+
+        proc = self._run_search_failure("--title", "損害賠償", "--decade", "2020")
+
+        self.assertEqual(2, proc.returncode)
+        self.assertEqual([], json.loads(proc.stdout))
+        self.assertIn("invalid JSON", proc.stderr)
+        self.assertIn(detail_path.name, proc.stderr)
 
 
 if __name__ == "__main__":

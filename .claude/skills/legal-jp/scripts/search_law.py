@@ -9,6 +9,7 @@ from pathlib import Path
 DEFAULT_REPO = os.environ.get(
     "LEGAL_JP_DATA_SET_PATH", str(Path(__file__).resolve().parents[4] / "data_set")
 )
+EXIT_DATA_ERROR = 2
 
 
 def load_json(path):
@@ -207,7 +208,7 @@ def main(argv=None):
     if not (repo / "law").is_dir():
         print(f"error: law directory not found: {repo / 'law'}", file=sys.stderr)
         print("[]")
-        return
+        return EXIT_DATA_ERROR
 
     if args.name is not None:
         results = search_law_names(
@@ -228,7 +229,8 @@ def main(argv=None):
         results = search_json_sources(repo, args.yomikae, ["law/yomikae.json"], limit=args.limit)
 
     print(json.dumps(results, ensure_ascii=False, indent=2))
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

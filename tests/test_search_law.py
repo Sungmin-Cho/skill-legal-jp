@@ -115,6 +115,22 @@ class SearchLawTest(unittest.TestCase):
         )
         return json.loads(proc.stdout), proc.stdout
 
+    def test_missing_law_directory_exits_nonzero_with_empty_json(self):
+        missing_repo = Path(self.tmp.name) / "missing_data_set"
+
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPT), "--repo", str(missing_repo), "--name", "民法"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+        )
+
+        self.assertEqual(2, proc.returncode)
+        self.assertEqual([], json.loads(proc.stdout))
+        self.assertIn("law directory not found", proc.stderr)
+
     def test_name_search_ranks_exact_active_minpo_first(self):
         results, _ = self._run_search("--name", "民法", "--limit", "5")
 
